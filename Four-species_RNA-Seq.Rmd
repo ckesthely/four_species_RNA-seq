@@ -1,0 +1,2062 @@
+---
+title: "4_bug_RNA-Seq_analysis"
+output: word_document
+date: "2022-11-11"
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DESeq2)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(openxlsx)
+library(tximport)
+library(biomaRt)
+library(pheatmap)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(circlize)
+library(qvalue)
+library(VennDiagram)
+library(greekLetters)
+library(genefilter)
+library(ggupset)
+library(KEGGREST)
+library(reshape2)
+library(ggsignif)
+library(cowplot)
+library(gridGraphics)
+library(gridExtra)
+library(ggpubr)
+library(vegan)
+library(ellipse)
+library(pairwiseAdonis)
+```
+
+### Read in sample data and metadata
+```{r sample_data, echo=FALSE}
+setwd("/Users/christopher_kesthely/Documents/postdoc/4_bug_community_RNA-seq/")
+PA14_read_counts <- read.table("PA14_read_counts/PA14_all_counts.txt", 
+                                        sep="\t", 
+                                        header=TRUE,
+                                        stringsAsFactors = FALSE)
+PA14_read_counts <- PA14_read_counts[-1,]
+PA14_read_counts <- PA14_read_counts[-1,]
+PA14_read_counts <- data.frame(PA14_read_counts[,-1], row.names=PA14_read_counts[,1])
+i <- (1:36)
+PA14_read_counts[,i] <- apply(PA14_read_counts[,i], 2, function(x) as.numeric(as.character(x)))
+PA14_read_counts <- as.matrix(PA14_read_counts)
+comparisons <- c("B", "B", "B", "B", "A", "A", "A", "A", "C", "C", "C", "C", "D", "D", "D", "D", "E", "E", "E", "E", "F", "F", "F", "F", "G", "G", "G", "G", "H", "H", "H", "H", "I", "I", "I", "I")
+
+Staph_read_counts <- read.table("Staph_read_counts/Staph_all_counts.txt", 
+                                         sep="\t", 
+                                         header=TRUE,
+                                         stringsAsFactors = FALSE)
+Staph_read_counts <- Staph_read_counts[-1,]
+Staph_read_counts <- data.frame(Staph_read_counts[,-1], row.names=Staph_read_counts[,1])
+i <- (1:32)
+Staph_read_counts[,i] <- apply(Staph_read_counts[,i], 2, function(x) as.numeric(as.character(x)))
+Staph_read_counts <- as.matrix(Staph_read_counts)
+
+Strep_read_counts <- read.table("Strep_read_counts/Strep_all_counts.txt", 
+                                          sep="\t", 
+                                          header=TRUE, 
+                                          row.names = 1, 
+                                          stringsAsFactors = FALSE)
+Strep_read_counts <- Strep_read_counts[-1,]
+i <- (1:32)
+Strep_read_counts[,i] <- apply(Strep_read_counts[,i], 2, function(x) as.numeric(as.character(x)))
+Strep_read_counts <- as.matrix(Strep_read_counts)
+
+Prev_read_counts <- read.table("Prev_read_counts/Prev_all_counts.txt", 
+                                          sep="\t", 
+                                          header=TRUE, 
+                                          row.names = 1, 
+                                          stringsAsFactors = FALSE)
+Prev_read_counts <- Prev_read_counts[-1,]
+i <- (1:28)
+Prev_read_counts[,i] <- apply(Prev_read_counts[,i], 2, function(x) as.numeric(as.character(x)))
+Prev_read_counts <- as.matrix(Prev_read_counts)
+
+PA14_colData <- read.xlsx("PA14_metadata.xlsx")
+PA14_colData <- mutate(PA14_colData, comparisons)
+PA14_colData <- PA14_colData[order(PA14_colData$Sample),]
+
+Staph_colData <- read.xlsx("Staph_metadata.xlsx")
+Staph_colData <- Staph_colData[order(Staph_colData$Sample),]
+
+Strep_colData <- read.xlsx("Strep_metadata.xlsx")
+Strep_colData <- Strep_colData[order(Strep_colData$Sample),]
+
+Prev_colData <- read.xlsx("Prev_metadata.xlsx")
+Prev_colData <- Prev_colData[order(Prev_colData$Sample),]
+```
+
+```{r view_data, include=FALSE, echo=FALSE}
+PA14_colData$comparisons
+Staph_colData$tx.group
+Strep_colData$tx.group
+Prev_colData$tx.group
+```
+
+```{r make_tx.group_factor, echo=FALSE}
+PA14_colData$comparisons <- as.factor(PA14_colData$comparisons)
+
+Staph_colData$tx.group <- factor(Staph_colData$tx.group, levels = c("Mix", "Mix_base", "Mix_lasR", "Mix_lasR_swap",
+                                                                  "Mix_lasR_tob", "Mix_swap", "Mix_tob", "Staph"))
+
+Strep_colData$tx.group <- factor(Strep_colData$tx.group, levels = c("Mix", "Mix_base", "Mix_lasR", "Mix_lasR_swap",
+                                                                  "Mix_lasR_tob", "Mix_swap", "Mix_tob", "Strep"))
+
+Prev_colData$tx.group <- factor(Prev_colData$tx.group, levels = c("Mix", "Mix_base", "Mix_lasR", "Mix_lasR_swap",
+                                                                  "Mix_lasR_tob", "Mix_swap", "Mix_tob"))
+```
+
+### Construct DESeq2 data-set
+```{r DESeq2, echo=FALSE}
+PA14_dds <- DESeqDataSetFromMatrix(countData = PA14_read_counts,
+                                   colData = PA14_colData,
+                                   design = ~ comparisons)
+
+Staph_dds <- DESeqDataSetFromMatrix(countData = Staph_read_counts,
+                                    colData = Staph_colData,
+                                    design = ~ tx.group)
+
+Strep_dds <- DESeqDataSetFromMatrix(countData = Strep_read_counts,
+                                    colData = Strep_colData,
+                                    design = ~ tx.group)
+
+Prev_dds <- DESeqDataSetFromMatrix(countData = Prev_read_counts,
+                                   colData = Prev_colData,
+                                   design = ~ tx.group)
+```
+
+### Normalization
+```{r normalization, echo=FALSE}
+PA14_dds <- estimateSizeFactors(PA14_dds)
+Staph_dds <- estimateSizeFactors(Staph_dds)
+Strep_dds <- estimateSizeFactors(Strep_dds)
+Prev_dds <- estimateSizeFactors(Prev_dds)
+```
+
+#Extract size factors
+```{r extract_size_factors, echo=FALSE}
+#extract size factors
+sizeFactors(PA14_dds)
+sizeFactors(Staph_dds)
+sizeFactors(Strep_dds)
+sizeFactors(Prev_dds)
+
+#plot histograms
+hist(sizeFactors(PA14_dds),
+     breaks=6, col = "blue",
+     xlab="Size factors", ylab = "No. of samples",
+     main = "PA14 Size factor distribution over samples")
+
+hist(sizeFactors(Staph_dds),
+     breaks=6, col = "blue",
+     xlab="Size factors", ylab = "No. of samples",
+     main = "Staph Size factor distribution over samples")
+
+hist(sizeFactors(Strep_dds),
+     breaks=6, col = "blue",
+     xlab="Size factors", ylab = "No. of samples",
+     main = "Strep Size factor distribution over samples")
+
+hist(sizeFactors(Prev_dds),
+     breaks=6, col = "blue",
+     xlab="Size factors", ylab = "No. of samples",
+     main = "Prev Size factor distribution over samples")
+
+# calculate normalized counts
+PA14_counts_norm <- counts(PA14_dds, normalized = TRUE)
+Staph_counts_norm <- counts(Staph_dds, normalized = TRUE)
+Strep_counts_norm <- counts(Strep_dds, normalized = TRUE)
+Prev_counts_norm <- counts(Prev_dds, normalized = TRUE)
+```
+
+### Exploratory analysis
+```{r drop_low_genes, echo=FALSE}
+#check original dimensions
+dim(PA14_dds)
+dim(Staph_dds)
+dim(Strep_dds)
+dim(Prev_dds)
+
+PA14_keep <- rowSums(counts(PA14_dds)) >= 10
+PA14_dds <- PA14_dds[PA14_keep,]
+
+Staph_keep <- rowSums(counts(Staph_dds)) >= 10
+Staph_dds <- Staph_dds[Staph_keep,]
+
+Strep_keep <- rowSums(counts(Strep_dds)) >= 10
+Strep_dds <- Strep_dds[Strep_keep,]
+
+Prev_keep <- rowSums(counts(Prev_dds)) >= 10
+Prev_dds <- Prev_dds[Prev_keep,]
+
+#check new dimensions
+dim(PA14_dds)
+dim(Staph_dds)
+dim(Strep_dds)
+dim(Prev_dds)
+```
+
+#implement regularized log procedure on the data
+```{r log_data, echo=FALSE}
+PA14_rld <- rlog(PA14_dds, blind = FALSE)
+Staph_rld <- rlog(Staph_dds, blind = FALSE)
+Strep_rld <- rlog(Strep_dds, blind = FALSE)
+Prev_rld <- rlog(Prev_dds, blind = FALSE)
+```
+
+#prepare data for PCA
+```{r PCA, echo=FALSE}
+PA14_var <- rev(rowVars(assay(PA14_rld))[order(rowVars(assay(PA14_rld)))])
+Staph_var <- rev(rowVars(assay(Staph_rld))[order(rowVars(assay(Staph_rld)))])
+Strep_var <- rev(rowVars(assay(Strep_rld))[order(rowVars(assay(Strep_rld)))])
+Prev_var <- rev(rowVars(assay(Prev_rld))[order(rowVars(assay(Prev_rld)))])
+
+par(mfrow=c(1,1))
+
+plot(PA14_var,
+     las = 1,
+     main = "Sample gene expression variance",
+     xlab = "Gene", ylab = "Variance")
+abline(v=1000, col="red")
+abline(v=500, col="green")
+abline(v=250, col="blue")
+
+
+plot(Staph_var,
+     las = 1,
+     main = "Sample gene expression variance",
+     xlab = "Gene", ylab = "Variance")
+abline(v=1000, col="red")
+abline(v=500, col="green")
+abline(v=250, col="blue")
+abline(v=50, col = "orange")
+
+plot(Strep_var,
+     las = 1,
+     main = "Sample gene expression variance",
+     xlab = "Gene", ylab = "Variance")
+abline(v=1000, col="red")
+abline(v=500, col="green")
+abline(v=250, col="blue")
+abline(v=50, col = "orange")
+
+plot(Prev_var,
+     las = 1,
+     main = "Sample gene expression variance",
+     xlab = "Gene", ylab = "Variance")
+abline(v=1000, col="red")
+abline(v=500, col="green")
+abline(v=250, col="blue")
+abline(v=50, col = "orange")
+
+
+# calculate row variance
+PA14_rv <- rowVars(assay(PA14_rld))
+Staph_rv <- rowVars(assay(Staph_rld))
+Strep_rv <- rowVars(assay(Strep_rld))
+Prev_rv <- rowVars(assay(Prev_rld))
+
+#subset rlog values for genes
+PA14_rld_sub <- assay(PA14_rld)
+Staph_rld_sub <- assay(Staph_rld)
+Strep_rld_sub <- assay(Strep_rld)
+Prev_rld_sub <- assay(Prev_rld)
+
+#transpose matrix rows to columsn and columns to rows
+PA14_rld_sub <- t(PA14_rld_sub)
+Staph_rld_sub <- t(Staph_rld_sub)
+Strep_rld_sub <- t(Strep_rld_sub)
+Prev_rld_sub <- t(Prev_rld_sub)
+
+# run PCA
+PA14_pca <- prcomp(PA14_rld_sub)
+Staph_pca <- prcomp(Staph_rld_sub)
+Strep_pca <- prcomp(Strep_rld_sub)
+Prev_pca <- prcomp(Prev_rld_sub)
+
+# extract variance
+PA14_percentVar <- PA14_pca$sdev^2/sum(PA14_pca$sdev^2)
+Staph_percentVar <- Staph_pca$sdev^2/sum(Staph_pca$sdev^2)
+Strep_percentVar <- Strep_pca$sdev^2/sum(Strep_pca$sdev^2)
+Prev_percentVar <- Prev_pca$sdev^2/sum(Prev_pca$sdev^2)
+
+# subset first five elements
+PA14_percentVar <- PA14_percentVar[1:5]
+Staph_percentVar <- Staph_percentVar[1:5]
+Strep_percentVar <- Strep_percentVar[1:5]
+Prev_percentVar <- Prev_percentVar[1:5]
+
+#give the string names
+
+names(PA14_percentVar) <- c("PC1", "PC2", "PC3", "PC4", "PC5")
+names(Staph_percentVar) <- c("PC1", "PC2", "PC3", "PC4", "PC5")
+names(Strep_percentVar) <- c("PC1", "PC2", "PC3", "PC4", "PC5")
+names(Prev_percentVar) <- c("PC1", "PC2", "PC3", "PC4", "PC5")
+
+#PA14
+barplot(PA14_percentVar, col = "red",
+        las=1,
+        ylab="% Variance",
+        cex.lab = 1.2)
+
+#Staph
+
+barplot(Staph_percentVar, col = "red",
+        las=1,
+        ylab="% Variance",
+        cex.lab = 1.2)
+
+#Strep
+
+barplot(Strep_percentVar, col = "red",
+        las=1,
+        ylab="% Variance",
+        cex.lab = 1.2)
+
+#Prev
+
+barplot(Prev_percentVar, col = "red",
+        las=1,
+        ylab="% Variance",
+        cex.lab = 1.2)
+
+# construct data frame with PC loadings and add labels
+PA14_pca_df <- as.data.frame(PA14_pca$x)
+Staph_pca_df <- as.data.frame(Staph_pca$x)
+Strep_pca_df <- as.data.frame(Strep_pca$x)
+Prev_pca_df <- as.data.frame(Prev_pca$x)
+
+# add column containing tx.group
+PA14_pca_df$tx.group <- PA14_dds@colData$tx.group
+Staph_pca_df$tx.group <- Staph_dds@colData$tx.group
+Strep_pca_df$tx.group <- Strep_dds@colData$tx.group
+Prev_pca_df$tx.group <- Prev_dds@colData$tx.group
+
+# add column containing sample IDs
+PA14_pca_df$sample_ids <- colnames(PA14_dds)
+Staph_pca_df$sample_ids <- colnames(Staph_dds)
+Strep_pca_df$sample_ids <- colnames(Strep_dds)
+Prev_pca_df$sample_ids <- colnames(Prev_dds)
+
+```
+
+```{r FDR_calculation, echo = FALSE}
+PA14_dds <- DESeq(PA14_dds)
+Staph_dds <- DESeq(Staph_dds)
+Strep_dds <- DESeq(Strep_dds)
+Prev_dds <- DESeq(Prev_dds)
+
+
+# plost histogram of raw counts
+hist(counts(PA14_dds, normalized = FALSE)[5,],
+     breaks = 500, col = "blue",
+     xlab = "Raw expression counts",
+     ylab = "Number of genes",
+     main = "Count distribution for sample X")
+hist(counts(Staph_dds, normalized = FALSE)[5,],
+     breaks = 500, col = "blue",
+     xlab = "Raw expression counts",
+     ylab = "Number of genes",
+     main = "Count distribution for sample X")
+hist(counts(Strep_dds, normalized = FALSE)[5,],
+     breaks = 500, col = "blue",
+     xlab = "Raw expression counts",
+     ylab = "Number of genes",
+     main = "Count distribution for sample X")
+hist(counts(Prev_dds, normalized = FALSE)[5,],
+     breaks = 500, col = "blue",
+     xlab = "Raw expression counts",
+     ylab = "Number of genes",
+     main = "Count distribution for sample X")
+
+#calculate mean and variance for each group of replicates
+PA14_mean_counts <- apply(counts(PA14_dds, normalized=FALSE)[,1:4], 1, mean)
+Staph_mean_counts <- apply(counts(Staph_dds, normalized=FALSE)[,1:4], 1, mean)
+Strep_mean_counts <- apply(counts(Strep_dds, normalized=FALSE)[,1:4], 1, mean)
+Prev_mean_counts <- apply(counts(Prev_dds, normalized=FALSE)[,1:4], 1, mean)
+
+PA14_variance_counts <- apply(counts(PA14_dds, normalized = FALSE)[,1:4], 1, var)
+Staph_variance_counts <- apply(counts(Staph_dds, normalized = FALSE)[,1:4], 1, var)
+Strep_variance_counts <- apply(counts(Strep_dds, normalized = FALSE)[,1:4], 1, var)
+Prev_variance_counts <- apply(counts(Prev_dds, normalized = FALSE)[,1:4], 1, var)
+
+
+#plot mean variance trend
+plot(log10(PA14_mean_counts), log10(PA14_variance_counts),
+     ylim = c(0,9), xlim = c(0,9),
+     ylab = "log10 (mean counts)", xlab = "log10 (variance)",
+     main = "PA14_mean-variance trend", las = 1)
+abline(0,1,lwd=2,col="red")
+
+plot(log10(Staph_mean_counts), log10(Staph_variance_counts),
+     ylim = c(0,9), xlim = c(0,9),
+     ylab = "log10 (mean counts)", xlab = "log10 (variance)",
+     main = "Staph_mean-variance trend", las = 1)
+abline(0,1,lwd=2,col="red")
+
+plot(log10(Strep_mean_counts), log10(Strep_variance_counts),
+     ylim = c(0,9), xlim = c(0,9),
+     ylab = "log10 (mean counts)", xlab = "log10 (variance)",
+     main = "Strep_mean-variance trend", las = 1)
+abline(0,1,lwd=2,col="red")
+
+plot(log10(Prev_mean_counts), log10(Prev_variance_counts),
+     ylim = c(0,9), xlim = c(0,9),
+     ylab = "log10 (mean counts)", xlab = "log10 (variance)",
+     main = "Prev_mean-variance trend", las = 1)
+abline(0,1,lwd=2,col="red")
+
+
+resultsNames(PA14_dds)
+resultsNames(Staph_dds)
+resultsNames(Strep_dds)
+resultsNames(Prev_dds)
+
+
+#PA14
+PA14_Mix_vs_lasR_res <- results(PA14_dds, name = "comparisons_B_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_base <- results(PA14_dds, name = "comparisons_C_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_lasR <- results(PA14_dds, name = "comparisons_D_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_lasR_swap <- results(PA14_dds, name = "comparisons_E_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_lasR_tob <- results(PA14_dds, name = "comparisons_F_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_swap <- results(PA14_dds, name = "comparisons_G_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_Mix_tob <- results(PA14_dds, name = "comparisons_H_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+PA14_Mix_vs_PA14 <- results(PA14_dds, name = "comparisons_I_vs_A", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+
+#Staph
+Staph_Mix_vs_Mix_base <- results(Staph_dds, name = "tx.group_Mix_base_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Mix_lasR <- results(Staph_dds, name = "tx.group_Mix_lasR_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Mix_lasR_swap <- results(Staph_dds, name = "tx.group_Mix_lasR_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Mix_lasR_tob <- results(Staph_dds, name = "tx.group_Mix_lasR_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Mix_swap <- results(Staph_dds, name = "tx.group_Mix_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Mix_tob <- results(Staph_dds, name = "tx.group_Mix_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Staph_Mix_vs_Staph <- results(Staph_dds, name = "tx.group_Staph_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+
+#Strep
+Strep_Mix_vs_Mix_base <- results(Strep_dds, name = "tx.group_Mix_base_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Mix_lasR <- results(Strep_dds, name = "tx.group_Mix_lasR_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Mix_lasR_swap <- results(Strep_dds, name = "tx.group_Mix_lasR_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Mix_lasR_tob <- results(Strep_dds, name = "tx.group_Mix_lasR_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Mix_swap <- results(Strep_dds, name = "tx.group_Mix_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Mix_tob <- results(Strep_dds, name = "tx.group_Mix_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Strep_Mix_vs_Strep <- results(Strep_dds, name = "tx.group_Strep_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+#Prev
+Prev_Mix_vs_Mix_base <- results(Prev_dds, name = "tx.group_Mix_base_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Prev_Mix_vs_Mix_lasR <- results(Prev_dds, name = "tx.group_Mix_lasR_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Prev_Mix_vs_Mix_lasR_swap <- results(Prev_dds, name = "tx.group_Mix_lasR_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Prev_Mix_vs_Mix_lasR_tob <- results(Prev_dds, name = "tx.group_Mix_lasR_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Prev_Mix_vs_Mix_swap <- results(Prev_dds, name = "tx.group_Mix_swap_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+
+Prev_Mix_vs_Mix_tob <- results(Prev_dds, name = "tx.group_Mix_tob_vs_Mix", alpha = 0.05, pAdjustMethod = "bonferroni")
+```
+
+```{r make_data_tables, echo = FALSE}
+PA14_final_data <- data.frame(row.names(PA14_Mix_vs_lasR_res),
+                              PA14_Mix_vs_lasR_res$log2FoldChange, PA14_Mix_vs_Mix_base$log2FoldChange, PA14_Mix_vs_Mix_lasR$log2FoldChange, PA14_Mix_vs_Mix_lasR_swap$log2FoldChange, PA14_Mix_vs_Mix_lasR_tob$log2FoldChange, PA14_Mix_vs_Mix_swap$log2FoldChange, PA14_Mix_vs_Mix_tob$log2FoldChange, PA14_Mix_vs_PA14$log2FoldChange,
+                              PA14_Mix_vs_lasR_res$padj, PA14_Mix_vs_Mix_base$padj, PA14_Mix_vs_Mix_lasR$padj, PA14_Mix_vs_Mix_lasR_swap$padj, PA14_Mix_vs_Mix_lasR_tob$padj, PA14_Mix_vs_Mix_swap$padj, PA14_Mix_vs_Mix_tob$padj, PA14_Mix_vs_PA14$padj)
+
+
+Staph_final_data <- data.frame(row.names(Staph_Mix_vs_Staph),
+                             Staph_Mix_vs_Mix_base$log2FoldChange, Staph_Mix_vs_Mix_lasR$log2FoldChange, Staph_Mix_vs_Mix_lasR_swap$log2FoldChange, Staph_Mix_vs_Mix_lasR_tob$log2FoldChange, Staph_Mix_vs_Mix_swap$log2FoldChange, Staph_Mix_vs_Mix_tob$log2FoldChange, Staph_Mix_vs_Staph$log2FoldChange,
+                            Staph_Mix_vs_Mix_base$padj, Staph_Mix_vs_Mix_lasR$padj, Staph_Mix_vs_Mix_lasR_swap$padj, Staph_Mix_vs_Mix_lasR_tob$padj, Staph_Mix_vs_Mix_swap$padj, Staph_Mix_vs_Mix_tob$padj, Staph_Mix_vs_Staph$padj)
+
+
+Strep_final_data <- data.frame(row.names(Strep_Mix_vs_Strep),
+                             Strep_Mix_vs_Mix_base$log2FoldChange, Strep_Mix_vs_Mix_lasR$log2FoldChange, Strep_Mix_vs_Mix_lasR_swap$log2FoldChange, Strep_Mix_vs_Mix_lasR_tob$log2FoldChange, Strep_Mix_vs_Mix_swap$log2FoldChange, Strep_Mix_vs_Mix_tob$log2FoldChange, Strep_Mix_vs_Strep$log2FoldChange,
+                            Strep_Mix_vs_Mix_base$padj, Strep_Mix_vs_Mix_lasR$padj, Strep_Mix_vs_Mix_lasR_swap$padj, Strep_Mix_vs_Mix_lasR_tob$padj, Strep_Mix_vs_Mix_swap$padj, Strep_Mix_vs_Mix_tob$padj, Strep_Mix_vs_Strep$padj)
+
+
+Prev_final_data <- data.frame(row.names(Prev_Mix_vs_Mix_base),
+                             Prev_Mix_vs_Mix_base$log2FoldChange, Prev_Mix_vs_Mix_lasR$log2FoldChange, Prev_Mix_vs_Mix_lasR_swap$log2FoldChange, Prev_Mix_vs_Mix_lasR_tob$log2FoldChange, Prev_Mix_vs_Mix_swap$log2FoldChange, Prev_Mix_vs_Mix_tob$log2FoldChange,
+                            Prev_Mix_vs_Mix_base$padj, Prev_Mix_vs_Mix_lasR$padj, Prev_Mix_vs_Mix_lasR_swap$padj, Prev_Mix_vs_Mix_lasR_tob$padj, Prev_Mix_vs_Mix_swap$padj, Prev_Mix_vs_Mix_tob$padj)
+
+```
+
+```{r make_excel_files, echo=FALSE}
+write.xlsx(PA14_final_data, "PA14_differentially_expressed.xlsx")
+write.xlsx(Staph_final_data, "Staph_differentially_expressed.xlsx")
+write.xlsx(Strep_final_data, "Strep_differentially_expressed.xlsx")
+write.xlsx(Prev_final_data, "Prev_differentially_expressed.xlsx")
+
+```
+
+
+
+
+```{r add_old_locus_tags, echo = FALSE}
+colnames(PA14_final_data)[1] <- "Locus_tag"
+colnames(Staph_final_data)[1] <- "Locus_tag"
+colnames(Strep_final_data)[1] <- "Locus_tag"
+colnames(Prev_final_data)[1] <- "Locus_tag"
+Prev_final_data <- Prev_final_data[order(Prev_final_data$Locus_tag),]
+
+setwd("/Users/christopher_kesthely/Documents/postdoc/4_bug_community_RNA-seq/differentially\ expressed\ genes")
+PA14_updated <- read.xlsx("PA14_differentially_expressed.xlsx")
+PA14_update_final_data <- mutate(PA14_final_data, "old_locus_tag" = PA14_updated$old_locus_tag)
+
+Staph_updated <- read.xlsx("Staph_differentially_expressed.xlsx")
+Staph_update_final_data <- mutate(Staph_final_data, "old_locus_tag" = Staph_updated$old_locus_tag)
+
+Strep_updated <- read.xlsx("Strep_differentially_expressed.xlsx")
+Strep_update_final_data <- mutate(Strep_final_data, "old_locus_tag" = Strep_updated$old_locus_tag)
+
+Prev_updated <- read.xlsx("Prev_differentially_expressed.xlsx")
+Prev_update_final_data <- mutate(Prev_final_data, "old_locus_tag" = Prev_updated$old_locus_tag)
+
+setwd("/Users/christopher_kesthely/Documents/postdoc/4_bug_community_RNA-seq/")
+```
+
+```{r kegg_data, echo = FALSE}
+pau_path_kegg <- keggLink("pathway", "pau") %>% 
+  tibble( pathway = ., old_locus_tag = sub("pau:", "", names(.)))
+pau_path_kegg$pathway <- gsub("path:", "", as.character(pau_path_kegg$pathway))
+pau_path_kegg$old_locus_tag <- gsub("pau:", "", as.character(pau_path_kegg$old_locus_tag))
+pau_path_kegg <- pau_path_kegg[,c(2,1)]
+PA14_kegg_names <- read.xlsx("PA14_kegg_names.xlsx")
+
+
+sae_path_kegg <- keggLink("pathway", "sae") %>% 
+  tibble(pathway = ., gene = sub("sae:", "", names(.)))
+sae_path_kegg$pathway <- gsub("path:", "", as.character(sae_path_kegg$pathway))
+sae_path_kegg$gene <- gsub("sae:", "", as.character(sae_path_kegg$gene))
+sae_path_kegg <- sae_path_kegg[,c(2,1)]
+colnames(sae_path_kegg)[1] <- "old_locus_tag"
+Staph_kegg_names <- read.xlsx("Staph_kegg_names.xlsx")
+
+
+ssa_path_kegg <- keggLink("pathway", "ssa") %>% 
+  tibble(pathway = ., gene = sub("ssa:", "", names(.)))
+ssa_path_kegg$pathway <- gsub("path:", "", as.character(ssa_path_kegg$pathway))
+ssa_path_kegg$gene <- gsub("ssa:", "", as.character(ssa_path_kegg$gene))
+ssa_path_kegg <- ssa_path_kegg[,c(2,1)]
+colnames(ssa_path_kegg)[1] <- "old_locus_tag"
+Strep_kegg_names <- read.xlsx("Strep_kegg_names.xlsx")
+
+
+pmz_path_kegg <- keggLink("pathway", "pmz") %>% 
+  tibble(pathway = ., gene = sub("pmz:", "", names(.)))
+pmz_path_kegg$pathway <- gsub("path:", "", as.character(pmz_path_kegg$pathway))
+pmz_path_kegg$gene <- gsub("pmz:", "", as.character(pmz_path_kegg$gene))
+pmz_path_kegg <- pmz_path_kegg[,c(2,1)]
+colnames(pmz_path_kegg)[1] <- "old_locus_tag"
+Prev_kegg_names <- read.xlsx("Prev_kegg_names.xlsx")
+
+
+PA14_kegg_full <- merge(pau_path_kegg, PA14_kegg_names, by = "pathway")
+Staph_kegg_full <- merge(sae_path_kegg, Staph_kegg_names, by = "pathway")
+Strep_kegg_full <- merge(ssa_path_kegg, Strep_kegg_names, by = "pathway")
+Prev_kegg_full <- merge(pmz_path_kegg, Prev_kegg_names, by = "pathway")
+
+
+pau_kegg_concat_pathway <- aggregate(pathway ~ old_locus_tag, pau_path_kegg, function(x) paste(x,collapse = ", "))
+sae_kegg_concat_pathway <- aggregate(pathway ~ old_locus_tag, sae_path_kegg, function(x) paste(x,collapse = ", "))
+ssa_kegg_concat_pathway <- aggregate(pathway ~ old_locus_tag, ssa_path_kegg, function(x) paste(x,collapse = ", "))
+pmz_kegg_concat_pathway <- aggregate(pathway ~ old_locus_tag, pmz_path_kegg, function(x) paste(x,collapse = ", "))
+
+pau_kegg_concat_name <- aggregate(Pathway_name ~ old_locus_tag, PA14_kegg_full, function(x) paste(x,collapse = ", "))
+sae_kegg_concat_name <- aggregate(Pathway_name ~ old_locus_tag, Staph_kegg_full, function(x) paste(x,collapse = ", "))
+ssa_kegg_concat_name <- aggregate(Pathway_name ~ old_locus_tag, Strep_kegg_full, function(x) paste(x,collapse = ", "))
+pmz_kegg_concat_name <- aggregate(Pathway_name ~ old_locus_tag, Prev_kegg_full, function(x) paste(x,collapse = ", "))
+
+pau_kegg_concat <- merge(pau_kegg_concat_pathway, pau_kegg_concat_name, by = "old_locus_tag")
+sae_kegg_concat <- merge(sae_kegg_concat_pathway, sae_kegg_concat_name, by = "old_locus_tag")
+ssa_kegg_concat <- merge(ssa_kegg_concat_pathway, ssa_kegg_concat_name, by = "old_locus_tag")
+pmz_kegg_concat <- merge(pmz_kegg_concat_pathway, pmz_kegg_concat_name, by = "old_locus_tag")
+  
+
+write.xlsx(pau_kegg_concat, "PA14_gene_kegg.xlsx")
+write.xlsx(sae_kegg_concat, "Staph_gene_kegg.xlsx")
+write.xlsx(ssa_kegg_concat, "Strep_gene_kegg.xlsx")
+write.xlsx(pmz_kegg_concat, "Prev_gene_kegg.xlsx")
+
+```
+
+```{r pca_plots, echo=FALSE}
+#Pseudomonas
+par(mar=c(5,5,1,1), xpd=TRUE)
+comparisons <- c("I", "I", "I", "I", "A", "A", "A", "A", "B", "B", "B", "B", "C", "C", "C", "C", "D", "D", "D", "D", "E", "E", "E", "E", "F", "F", "F", "F", "G", "G", "G", "G", "H", "H", "H", "H")
+PA14_pca_df <- mutate(PA14_pca_df, comparisons)
+plot(PA14_pca_df[, 1], PA14_pca_df[, 2],
+     xlab = paste0("PC1 (", (round(PA14_percentVar[1], digits=3)*100), "% variance)"),
+     ylab = paste0("PC2 (", (round(PA14_percentVar[2], digits=3)*100), "% variance)"),
+     pch = 21, 
+     cex = 1.35, 
+     cex.lab = 1.7, 
+     cex.axis = 1.3, 
+     las = 1,
+     panel.first = grid(),
+     bg = colours <- brewer.pal(9,"Set1")[levels = as.factor(PA14_pca_df$comparisons)],
+     col = "black")
+
+legend("topright", legend=c("Mix","Mix_base","Mix_\U0394lasR","Mix_\U0394lasR_swap","Mix_\U0394lasR_tob","Mix_swap","Mix_tob","Mono", "\U0394lasR"),
+       inset =c(-0.25,0), 
+       pch = c(21), 
+       pt.bg = brewer.pal(9, "Set1"),
+       col = "black")
+
+PA14_colData <- mutate(PA14_colData, "PCA_groups" = c("A","A","A","A","A","A","A","A",
+                                                      "B","B","B","B","A","A","A","A",
+                                                      "C","C","C","C","C","C","C","C",
+                                                      "C","C","C","C","C","C","C","C",
+                                                      "A","A","A","A"))
+adonis2(PA14_pca$x ~ tx.group, data = PA14_colData, method = "euclidean")
+pairwise.adonis(PA14_pca$x, factors = PA14_colData$tx.group, sim.method = "eu", p.adjust.m = 'fdr')
+
+
+#Staph
+par(mar=c(5,5,5,8.5), xpd=TRUE)
+plot(Staph_pca_df[, 1], Staph_pca_df[, 2],
+     xlab = paste0("PC1 (", (round(Staph_percentVar[1], digits=3)*100), "% variance)"),
+     ylab = paste0("PC2 (", (round(Staph_percentVar[2], digits=3)*100), "% variance)"),
+     pch = 21, 
+     cex = 1.35, 
+     cex.lab = 1.7, 
+     cex.axis = 1.3, 
+     las = 1,
+     panel.first = grid(),
+     bg=brewer.pal(8, "Set1")[levels = Staph_pca_df$tx.group],
+     col = "black")
+
+legend("topright", legend=c("Mix","Mix_base","Mix_lasR","Mix_lasR_swap","Mix_lasR_tob","Mix_swap","Mix_tob","Staph"), 
+       inset =c(-0.25,0), 
+       pch = 21, 
+       pt.bg = brewer.pal(8, "Set1"),
+       col = "black")
+
+Staph_colData <- mutate(Staph_colData, "PCA_groups" = c("A","A","A","A",
+                                                        "B","B","B","B","A","A","A","A",
+                                                        "C","C","C","C","C","C","C","C",
+                                                        "C","C","C","C","C","C","C","C",
+                                                        "A","A","A","A"))
+
+adonis2(Staph_pca$x ~ tx.group, data = Staph_colData, method = "euclidean")
+pairwise.adonis(Staph_pca$x, factors = Staph_colData$tx.group, sim.method = "euclidean", p.adjust.m = 'fdr')
+
+#Strep
+par(mar=c(5,5,5,8.5), xpd=TRUE)
+plot(Strep_pca_df[, 1], Strep_pca_df[, 2],
+     xlab = paste0("PC1 (", (round(Strep_percentVar[1], digits=3)*100), "% variance)"),
+     ylab = paste0("PC2 (", (round(Strep_percentVar[2], digits=3)*100), "% variance)"),
+     pch = 21, 
+     cex = 1.35, 
+     cex.lab = 1.7, 
+     cex.axis = 1.3, 
+     las = 1,
+     panel.first = grid(),
+     bg=brewer.pal(8, "Set1")[levels = Strep_pca_df$tx.group],
+     col = "black")
+
+legend("topright", legend=c("Mix","Mix_base","Mix_lasR","Mix_lasR_swap","Mix_lasR_tob","Mix_swap","Mix_tob","Strep"), 
+       inset =c(-0.25,0), 
+       pch = c(21), 
+       pt.bg = brewer.pal(8, "Set1"),
+       col = "black")
+
+Strep_colData <- mutate(Strep_colData, "PCA_groups" = c("A","A","A","A",
+                                                        "B","B","B","B","A","A","A","A",
+                                                        "C","C","C","C","C","C","C","C",
+                                                        "C","C","C","C","C","C","C","C",
+                                                        "A","A","A","A"))
+adonis2(Strep_pca$x ~ tx.group, data = Strep_colData, method = "euclidean")
+pairwise.adonis(Strep_pca$x, factors = Strep_colData$tx.group, sim.method = "euclidean", p.adjust.m = 'fdr')
+
+#Prev
+par(mar=c(5,5,5,8.5), xpd=TRUE)
+plot(Prev_pca_df[, 1], Prev_pca_df[, 2],
+     xlab = paste0("PC1 (", (round(Prev_percentVar[1], digits=3)*100), "% variance)"),
+     ylab = paste0("PC2 (", (round(Prev_percentVar[2], digits=3)*100), "% variance)"),
+     pch = 21, 
+     cex = 1.35, 
+     cex.lab = 1.7, 
+     cex.axis = 1.3, 
+     las = 1,
+     panel.first = grid(),
+     bg=brewer.pal(7, "Set1")[levels = Prev_pca_df$tx.group],
+     col = "black")
+
+legend("topright", legend=c("Mix","Mix_base","Mix_lasR","Mix_lasR_swap","Mix_lasR_tob","Mix_swap","Mix_tob"), 
+       inset =c(-0.25,0),
+       pch = c(21), 
+       pt.bg = brewer.pal(7, "Set1"),
+       col = "black")
+Prev_colData <- mutate(Prev_colData, "PCA_groups" = c("A","A","A","A",
+                                                        "B","B","B","B","A","A","A","A",
+                                                        "C","C","C","C","C","C","C","C",
+                                                        "C","C","C","C","C","C","C","C"))
+adonis2(Prev_pca$x ~ tx.group, data = Prev_colData, method = "euclidean")
+pairwise.adonis(Prev_pca$x, factors = Prev_colData$tx.group, sim.method = "euclidean", p.adjust.m = 'fdr')
+```
+
+```{r heatmaps, echo=FALSE}
+PA14_topVarGenes <- head(order(rowVars(assay(PA14_rld)), decreasing = TRUE), 50)
+PA14_mat  <- assay(PA14_rld)[PA14_topVarGenes,]
+PA14_mat  <- PA14_mat - rowMeans(PA14_mat)
+PA14_anno <- data.frame(condition = colData(PA14_rld)[,"group"])
+PA14_anno$condition <- gsub("lasR", "\U0394lasR", as.character(PA14_anno$condition))
+PA14_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(9, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "PA14", "\U0394lasR"))))))
+PA14_heatmap <- pheatmap(PA14_mat, annotation_col = PA14_anno, fontsize_row = 8.5, name = "log2FC",
+                         annotation_colors = PA14_heatmap_legend_cols, show_colnames = FALSE)
+plot(PA14_heatmap)
+
+#Staph
+Staph_topVarGenes <- head(order(rowVars(assay(Staph_rld)), decreasing = TRUE), 50)
+Staph_mat  <- assay(Staph_rld)[Staph_topVarGenes,]
+Staph_mat  <- Staph_mat - rowMeans(Staph_mat)
+Staph_anno <- data.frame(condition = colData(Staph_rld)[,"group"])
+Staph_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Staph_anno$condition))
+Staph_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Staph"))))))
+Staph_heatmap <- pheatmap(Staph_mat, annotation_col = Staph_anno, fontsize_row = 8.5, name = "log2FC", 
+                          annotation_colors = Staph_heatmap_legend_cols, show_colnames = FALSE)
+plot(Staph_heatmap)
+
+#Strep
+Strep_topVarGenes <- head(order(rowVars(assay(Strep_rld)), decreasing = TRUE), 50)
+Strep_mat  <- assay(Strep_rld)[Strep_topVarGenes,]
+Strep_mat  <- Strep_mat - rowMeans(Strep_mat)
+Strep_anno <- data.frame(condition = colData(Strep_rld)[,"group"])
+Strep_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Strep_anno$condition))
+Strep_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Strep"))))))
+Strep_heatmap <- pheatmap(Strep_mat, annotation_col = Strep_anno, fontsize_row = 6.5, name = "log2FC", 
+                          annotation_colors = Strep_heatmap_legend_cols, show_colnames = FALSE)
+plot(Strep_heatmap)
+
+#Prev
+Prev_topVarGenes <- head(order(rowVars(assay(Prev_rld)), decreasing = TRUE), 50)
+Prev_mat  <- assay(Prev_rld)[Prev_topVarGenes,]
+Prev_mat  <- Prev_mat - rowMeans(Prev_mat)
+Prev_anno <- data.frame(condition = colData(Prev_rld)[,"group"])
+Prev_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Prev_anno$condition))
+Prev_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(7, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob"))))))
+Prev_heatmap <- pheatmap(Prev_mat, annotation_col = Prev_anno, fontsize_row = 6.5, name = "log2FC", 
+                         annotation_colors = Prev_heatmap_legend_cols, show_colnames = FALSE)
+plot(Prev_heatmap)
+```
+
+```{r venn_diagrams_Pseudomonas, echo=FALSE}
+#view(PA14_final_data)
+#view(Staph_final_data)
+#view(Strep_final_data)
+#view(Prev_final_data)
+
+#filter data for stats
+Pseudo_Mix_lasR_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_Mix_lasR.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_lasR.log2FoldChange)
+
+Pseudo_Mix_lasR_swap_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_Mix_lasR_swap.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_lasR_swap.log2FoldChange)
+
+Pseudo_Mix_lasR_tob_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_Mix_lasR_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_lasR_tob.log2FoldChange)
+
+Pseudo_PA14_stats <- PA14_update_final_data %>%
+  filter(PA14_Mix_vs_PA14.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_PA14.log2FoldChange)
+
+Pseudo_Mix_base_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_Mix_base.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_base.log2FoldChange)
+
+Pseudo_lasR_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_lasR_res.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_lasR_res.log2FoldChange)
+
+Pseudo_Mix_swap_stats <- PA14_update_final_data %>%
+  filter(PA14_Mix_vs_Mix_swap.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_swap.log2FoldChange)
+
+Pseudo_Mix_tob_stats <- PA14_update_final_data %>% 
+  filter(PA14_Mix_vs_Mix_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, PA14_Mix_vs_Mix_tob.log2FoldChange)
+
+#downregulated Pseudomonas
+Pseudo_Mix_lasR_down <- Pseudo_Mix_lasR_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR.log2FoldChange <= -1.5)
+
+Pseudo_Mix_lasR_swap_down <- Pseudo_Mix_lasR_swap_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR_swap.log2FoldChange <= -1.5)
+
+Pseudo_Mix_lasR_tob_down <- Pseudo_Mix_lasR_tob_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR_tob.log2FoldChange <= -1.5)
+
+Pseudo_PA14_down <- Pseudo_PA14_stats %>%
+  filter(PA14_Mix_vs_PA14.log2FoldChange <= -1.5)
+
+Pseudo_Mix_base_down <- Pseudo_Mix_base_stats %>%
+  filter(PA14_Mix_vs_Mix_base.log2FoldChange <= -1.5)
+
+Pseudo_lasR_down <- Pseudo_lasR_stats %>%
+  filter(PA14_Mix_vs_lasR_res.log2FoldChange <= -1.5)
+
+Pseudo_Mix_swap_down <- Pseudo_Mix_swap_stats %>%
+  filter(PA14_Mix_vs_Mix_swap.log2FoldChange <= -1.5)
+
+Pseudo_Mix_tob_down <- Pseudo_Mix_tob_stats %>%
+  filter(PA14_Mix_vs_Mix_tob.log2FoldChange <= -1.5)
+
+
+#Venn diagrams
+venn.diagram(x = list(Pseudo_Mix_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag, Pseudo_Mix_lasR_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob","Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Pseudo_Mix_fresh_media_down.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+
+Pseudo_fresh_media_down <- calculate.overlap(list(Pseudo_Mix_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag, Pseudo_Mix_lasR_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag))
+for(i in 1:length(Pseudo_fresh_media_down)){
+temp <- data.frame(genes = Pseudo_fresh_media_down[[i]], values = Pseudo_fresh_media_down[[i]], dataset = rep(names(Pseudo_fresh_media_down[i]),length(Pseudo_fresh_media_down[[i]])))
+if(i == 1){
+  list_Pseudo_fresh_media_down <- temp
+} 
+else{
+  list_Pseudo_fresh_media_down <- bind_rows(list_Pseudo_fresh_media_down, temp)
+}
+}
+
+list_Pseudo_fresh_media_down_wide <- list_Pseudo_fresh_media_down %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Pseudo_fresh_media_down_wide , "Pseudo_fresh_media_down.xlsx")
+
+#upregulated Pseudomonas
+Pseudo_Mix_lasR_up <-  Pseudo_Mix_lasR_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR.log2FoldChange >= 1.5)
+
+Pseudo_Mix_lasR_swap_up <- Pseudo_Mix_lasR_swap_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR_swap.log2FoldChange >= 1.5)
+
+Pseudo_Mix_lasR_tob_up <- Pseudo_Mix_lasR_tob_stats %>%
+  filter(PA14_Mix_vs_Mix_lasR_tob.log2FoldChange >= 1.5)
+
+Pseudo_PA14_up <- Pseudo_PA14_stats %>% 
+  filter(PA14_Mix_vs_PA14.log2FoldChange >= 1.5)
+
+Pseudo_Mix_base_up <- Pseudo_Mix_base_stats %>%
+  filter(PA14_Mix_vs_Mix_base.log2FoldChange >= 1.5)
+
+Pseudo_lasR_up <- Pseudo_lasR_stats %>%
+  filter(PA14_Mix_vs_lasR_res.log2FoldChange >= 1.5)
+
+Pseudo_Mix_swap_up <- Pseudo_Mix_swap_stats %>%
+  filter(PA14_Mix_vs_Mix_swap.log2FoldChange >= 1.5)
+
+Pseudo_Mix_tob_up <- Pseudo_Mix_tob_stats %>%
+  filter(PA14_Mix_vs_Mix_tob.log2FoldChange >= 1.5)
+
+
+#Venn diagrams
+venn.diagram(x = list(Pseudo_Mix_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag, Pseudo_Mix_lasR_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Pseudo_Mix_fresh_media_up.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Pseudo_fresh_media_up <- calculate.overlap(list(Pseudo_Mix_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag, Pseudo_Mix_lasR_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag))
+for(i in 1:length(Pseudo_fresh_media_up)){
+temp <- data.frame(genes = Pseudo_fresh_media_up[[i]], values = Pseudo_fresh_media_up[[i]], dataset = rep(names(Pseudo_fresh_media_up[i]),length(Pseudo_fresh_media_up[[i]])))
+if(i == 1){
+  list_Pseudo_fresh_media_up <- temp
+} 
+else{
+  list_Pseudo_fresh_media_up <- bind_rows(list_Pseudo_fresh_media_up, temp)
+}
+}
+
+list_Pseudo_fresh_media_up_wide <- list_Pseudo_fresh_media_up %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Pseudo_fresh_media_up_wide , "Pseudo_fresh_media_up.xlsx")
+
+```
+
+```{r venn_diagrams_Staph, echo = FALSE}
+#filter data for stats
+Staph_Mix_lasR_stats <- Staph_update_final_data %>% 
+  filter(Staph_Mix_vs_Mix_lasR.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_lasR.log2FoldChange)
+
+Staph_Mix_lasR_swap_stats <- Staph_update_final_data %>% 
+  filter(Staph_Mix_vs_Mix_lasR_swap.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_lasR_swap.log2FoldChange)
+
+Staph_Mix_lasR_tob_stats <- Staph_update_final_data %>% 
+  filter(Staph_Mix_vs_Mix_lasR_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_lasR_tob.log2FoldChange)
+
+Staph_Staph_stats <- Staph_update_final_data %>%
+  filter(Staph_Mix_vs_Staph.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Staph.log2FoldChange)
+
+Staph_Mix_base_stats <- Staph_update_final_data %>% 
+  filter(Staph_Mix_vs_Mix_base.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_base.log2FoldChange)
+
+Staph_Mix_swap_stats <- Staph_update_final_data %>%
+  filter(Staph_Mix_vs_Mix_swap.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_swap.log2FoldChange)
+
+Staph_Mix_tob_stats <- Staph_update_final_data %>% 
+  filter(Staph_Mix_vs_Mix_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Staph_Mix_vs_Mix_tob.log2FoldChange)
+
+#downregulated Staphmonas
+Staph_Mix_lasR_down <- Staph_Mix_lasR_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR.log2FoldChange <= -1.5)
+
+Staph_Mix_lasR_swap_down <- Staph_Mix_lasR_swap_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR_swap.log2FoldChange <= -1.5)
+
+Staph_Mix_lasR_tob_down <- Staph_Mix_lasR_tob_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR_tob.log2FoldChange <= -1.5)
+
+Staph_Staph_down <- Staph_Staph_stats %>%
+  filter(Staph_Mix_vs_Staph.log2FoldChange <= -1.5)
+
+Staph_Mix_base_down <- Staph_Mix_base_stats %>%
+  filter(Staph_Mix_vs_Mix_base.log2FoldChange <= -1.5)
+
+Staph_Mix_swap_down <- Staph_Mix_swap_stats %>%
+  filter(Staph_Mix_vs_Mix_swap.log2FoldChange <= -1.5)
+
+Staph_Mix_tob_down <- Staph_Mix_tob_stats %>%
+  filter(Staph_Mix_vs_Mix_tob.log2FoldChange <= -1.5)
+
+#upregulated Staphmonas
+Staph_Mix_lasR_up <-  Staph_Mix_lasR_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR.log2FoldChange >= 1.5)
+
+Staph_Mix_lasR_swap_up <- Staph_Mix_lasR_swap_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR_swap.log2FoldChange >= 1.5)
+
+Staph_Mix_lasR_tob_up <- Staph_Mix_lasR_tob_stats %>%
+  filter(Staph_Mix_vs_Mix_lasR_tob.log2FoldChange >= 1.5)
+
+Staph_Staph_up <- Staph_Staph_stats %>% 
+  filter(Staph_Mix_vs_Staph.log2FoldChange >= 1.5)
+
+Staph_Mix_base_up <- Staph_Mix_base_stats %>%
+  filter(Staph_Mix_vs_Mix_base.log2FoldChange >= 1.5)
+
+Staph_Mix_swap_up <- Staph_Mix_swap_stats %>%
+  filter(Staph_Mix_vs_Mix_swap.log2FoldChange >= 1.5)
+
+Staph_Mix_tob_up <- Staph_Mix_tob_stats %>%
+  filter(Staph_Mix_vs_Mix_tob.log2FoldChange >= 1.5)
+
+#Down regulated genes Venn diagrams
+venn.diagram(x = list(Staph_Mix_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag, Staph_Mix_lasR_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Staph_Mix_fresh_media_down.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+
+Staph_fresh_media_down <- calculate.overlap(list(Staph_Mix_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag, Staph_Mix_lasR_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag))
+for(i in 1:length(Staph_fresh_media_down)){
+temp <- data.frame(genes = Staph_fresh_media_down[[i]], values = Staph_fresh_media_down[[i]], dataset = rep(names(Staph_fresh_media_down[i]),length(Staph_fresh_media_down[[i]])))
+if(i == 1){
+  list_Staph_fresh_media_down <- temp
+} 
+else{
+  list_Staph_fresh_media_down <- bind_rows(list_Staph_fresh_media_down, temp)
+}
+}
+
+list_Staph_fresh_media_down_wide <- list_Staph_fresh_media_down %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Staph_fresh_media_down_wide , "Staph_fresh_media_down.xlsx")
+
+#Up regulated genes Venn diagrams
+venn.diagram(x = list(Staph_Mix_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag, Staph_Mix_lasR_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Staph_Mix_fresh_media_up.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Staph_fresh_media_up <- calculate.overlap(list(Staph_Mix_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag, Staph_Mix_lasR_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag))
+for(i in 1:length(Staph_fresh_media_up)){
+temp <- data.frame(genes = Staph_fresh_media_up[[i]], values = Staph_fresh_media_up[[i]], dataset = rep(names(Staph_fresh_media_up[i]),length(Staph_fresh_media_up[[i]])))
+if(i == 1){
+  list_Staph_fresh_media_up <- temp
+} 
+else{
+  list_Staph_fresh_media_up <- bind_rows(list_Staph_fresh_media_up, temp)
+}
+}
+
+list_Staph_fresh_media_up_wide <- list_Staph_fresh_media_up %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Staph_fresh_media_up_wide , "Staph_fresh_media_up.xlsx")
+```
+
+```{r venn_diagrams_Strep, echo = FALSE}
+#filter data for stats
+Strep_Mix_lasR_stats <- Strep_update_final_data %>% 
+  filter(Strep_Mix_vs_Mix_lasR.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_lasR.log2FoldChange)
+
+Strep_Mix_lasR_swap_stats <- Strep_update_final_data %>% 
+  filter(Strep_Mix_vs_Mix_lasR_swap.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_lasR_swap.log2FoldChange)
+
+Strep_Mix_lasR_tob_stats <- Strep_update_final_data %>% 
+  filter(Strep_Mix_vs_Mix_lasR_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_lasR_tob.log2FoldChange)
+
+Strep_Strep_stats <- Strep_update_final_data %>%
+  filter(Strep_Mix_vs_Strep.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Strep.log2FoldChange)
+
+Strep_Mix_base_stats <- Strep_update_final_data %>% 
+  filter(Strep_Mix_vs_Mix_base.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_base.log2FoldChange)
+
+Strep_Mix_swap_stats <- Strep_update_final_data %>%
+  filter(Strep_Mix_vs_Mix_swap.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_swap.log2FoldChange)
+
+Strep_Mix_tob_stats <- Strep_update_final_data %>% 
+  filter(Strep_Mix_vs_Mix_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Strep_Mix_vs_Mix_tob.log2FoldChange)
+
+#downregulated Strepmonas
+Strep_Mix_lasR_down <- Strep_Mix_lasR_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR.log2FoldChange <= -1.5)
+
+Strep_Mix_lasR_swap_down <- Strep_Mix_lasR_swap_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR_swap.log2FoldChange <= -1.5)
+
+Strep_Mix_lasR_tob_down <- Strep_Mix_lasR_tob_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR_tob.log2FoldChange <= -1.5)
+
+Strep_Strep_down <- Strep_Strep_stats %>%
+  filter(Strep_Mix_vs_Strep.log2FoldChange <= -1.5)
+
+Strep_Mix_base_down <- Strep_Mix_base_stats %>%
+  filter(Strep_Mix_vs_Mix_base.log2FoldChange <= -1.5)
+
+Strep_Mix_swap_down <- Strep_Mix_swap_stats %>%
+  filter(Strep_Mix_vs_Mix_swap.log2FoldChange <= -1.5)
+
+Strep_Mix_tob_down <- Strep_Mix_tob_stats %>%
+  filter(Strep_Mix_vs_Mix_tob.log2FoldChange <= -1.5)
+
+#upregulated Strepmonas
+Strep_Mix_lasR_up <-  Strep_Mix_lasR_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR.log2FoldChange >= 1.5)
+
+Strep_Mix_lasR_swap_up <- Strep_Mix_lasR_swap_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR_swap.log2FoldChange >= 1.5)
+
+Strep_Mix_lasR_tob_up <- Strep_Mix_lasR_tob_stats %>%
+  filter(Strep_Mix_vs_Mix_lasR_tob.log2FoldChange >= 1.5)
+
+Strep_Strep_up <- Strep_Strep_stats %>% 
+  filter(Strep_Mix_vs_Strep.log2FoldChange >= 1.5)
+
+Strep_Mix_base_up <- Strep_Mix_base_stats %>%
+  filter(Strep_Mix_vs_Mix_base.log2FoldChange >= 1.5)
+
+Strep_Mix_swap_up <- Strep_Mix_swap_stats %>%
+  filter(Strep_Mix_vs_Mix_swap.log2FoldChange >= 1.5)
+
+Strep_Mix_tob_up <- Strep_Mix_tob_stats %>%
+  filter(Strep_Mix_vs_Mix_tob.log2FoldChange >= 1.5)
+
+#Down regulated genes Venn diagrams
+venn.diagram(x = list(Strep_Mix_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag, Strep_Mix_lasR_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Strep_Mix_fresh_media_down.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Strep_fresh_media_down <- calculate.overlap(list(Strep_Mix_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag, Strep_Mix_lasR_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag))
+for(i in 1:length(Strep_fresh_media_down)){
+temp <- data.frame(genes = Strep_fresh_media_down[[i]], values = Strep_fresh_media_down[[i]], dataset = rep(names(Strep_fresh_media_down[i]),length(Strep_fresh_media_down[[i]])))
+if(i == 1){
+  list_Strep_fresh_media_down <- temp
+} 
+else{
+  list_Strep_fresh_media_down <- bind_rows(list_Strep_fresh_media_down, temp)
+}
+}
+
+list_Strep_fresh_media_down_wide <- list_Strep_fresh_media_down %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Strep_fresh_media_down_wide , "Strep_fresh_media_down.xlsx")
+
+#Up regulated genes Venn diagrams
+venn.diagram(x = list(Strep_Mix_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag, Strep_Mix_lasR_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Strep_Mix_fresh_media_up.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Strep_fresh_media_up <- calculate.overlap(list(Strep_Mix_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag, Strep_Mix_lasR_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag))
+for(i in 1:length(Strep_fresh_media_up)){
+temp <- data.frame(genes = Strep_fresh_media_up[[i]], values = Strep_fresh_media_up[[i]], dataset = rep(names(Strep_fresh_media_up[i]),length(Strep_fresh_media_up[[i]])))
+if(i == 1){
+  list_Strep_fresh_media_up <- temp
+} 
+else{
+  list_Strep_fresh_media_up <- bind_rows(list_Strep_fresh_media_up, temp)
+}
+}
+
+list_Strep_fresh_media_up_wide <- list_Strep_fresh_media_up %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Strep_fresh_media_up_wide , "Strep_fresh_media_up.xlsx")
+```
+
+```{r ven_diagrams_Prev, echo = FALSE}
+#filter data for stats
+Prev_Mix_lasR_stats <- Prev_update_final_data %>% 
+  filter(Prev_Mix_vs_Mix_lasR.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_lasR.log2FoldChange)
+
+Prev_Mix_lasR_swap_stats <- Prev_update_final_data %>% 
+  filter(Prev_Mix_vs_Mix_lasR_swap.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_lasR_swap.log2FoldChange)
+
+Prev_Mix_lasR_tob_stats <- Prev_update_final_data %>% 
+  filter(Prev_Mix_vs_Mix_lasR_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_lasR_tob.log2FoldChange)
+
+Prev_Mix_base_stats <- Prev_update_final_data %>% 
+  filter(Prev_Mix_vs_Mix_base.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_base.log2FoldChange)
+
+Prev_Mix_swap_stats <- Prev_update_final_data %>%
+  filter(Prev_Mix_vs_Mix_swap.padj <= 0.05) %>% 
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_swap.log2FoldChange)
+
+Prev_Mix_tob_stats <- Prev_update_final_data %>% 
+  filter(Prev_Mix_vs_Mix_tob.padj <= 0.05) %>%
+  dplyr::select(Locus_tag, old_locus_tag, Prev_Mix_vs_Mix_tob.log2FoldChange)
+
+#downregulated Prevmonas
+Prev_Mix_lasR_down <- Prev_Mix_lasR_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR.log2FoldChange <= -1.5)
+
+Prev_Mix_lasR_swap_down <- Prev_Mix_lasR_swap_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR_swap.log2FoldChange <= -1.5)
+
+Prev_Mix_lasR_tob_down <- Prev_Mix_lasR_tob_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR_tob.log2FoldChange <= -1.5)
+
+Prev_Mix_base_down <- Prev_Mix_base_stats %>%
+  filter(Prev_Mix_vs_Mix_base.log2FoldChange <= -1.5)
+
+Prev_Mix_swap_down <- Prev_Mix_swap_stats %>%
+  filter(Prev_Mix_vs_Mix_swap.log2FoldChange <= -1.5)
+
+Prev_Mix_tob_down <- Prev_Mix_tob_stats %>%
+  filter(Prev_Mix_vs_Mix_tob.log2FoldChange <= -1.5)
+
+#upregulated Prevmonas
+Prev_Mix_lasR_up <-  Prev_Mix_lasR_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR.log2FoldChange >= 1.5)
+
+Prev_Mix_lasR_swap_up <- Prev_Mix_lasR_swap_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR_swap.log2FoldChange >= 1.5)
+
+Prev_Mix_lasR_tob_up <- Prev_Mix_lasR_tob_stats %>%
+  filter(Prev_Mix_vs_Mix_lasR_tob.log2FoldChange >= 1.5)
+
+Prev_Mix_base_up <- Prev_Mix_base_stats %>%
+  filter(Prev_Mix_vs_Mix_base.log2FoldChange >= 1.5)
+
+Prev_Mix_swap_up <- Prev_Mix_swap_stats %>%
+  filter(Prev_Mix_vs_Mix_swap.log2FoldChange >= 1.5)
+
+Prev_Mix_tob_up <- Prev_Mix_tob_stats %>%
+  filter(Prev_Mix_vs_Mix_tob.log2FoldChange >= 1.5)
+
+#Down regulated genes Venn diagrams
+venn.diagram(x = list(Prev_Mix_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag, Prev_Mix_lasR_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Prev_Mix_fresh_media_down.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Prev_fresh_media_down <- calculate.overlap(list(Prev_Mix_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag, Prev_Mix_lasR_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag))
+for(i in 1:length(Prev_fresh_media_down)){
+temp <- data.frame(genes = Prev_fresh_media_down[[i]], values = Prev_fresh_media_down[[i]], dataset = rep(names(Prev_fresh_media_down[i]),length(Prev_fresh_media_down[[i]])))
+if(i == 1){
+  list_Prev_fresh_media_down <- temp
+} 
+else{
+  list_Prev_fresh_media_down <- bind_rows(list_Prev_fresh_media_down, temp)
+}
+}
+
+list_Prev_fresh_media_down_wide <- list_Prev_fresh_media_down %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Prev_fresh_media_down_wide , "Prev_fresh_media_down.xlsx")
+
+#Up regulated genes Venn diagrams
+venn.diagram(x = list(Prev_Mix_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag, Prev_Mix_lasR_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
+                                "Mix_\U0394lasR_tob"),
+             filename = "Prev_Mix_fresh_media_up.png",
+             imagetype="png",
+             output = FALSE,
+             lty = "blank",
+             fill = c("green", 'red', 'blue', "yellow"),
+             cat.cex = 1.3,
+             euler.d = TRUE,
+             scaled = TRUE,
+             margin = 0.02,
+             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+
+Prev_fresh_media_up <- calculate.overlap(list(Prev_Mix_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag, Prev_Mix_lasR_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag))
+for(i in 1:length(Prev_fresh_media_up)){
+temp <- data.frame(genes = Prev_fresh_media_up[[i]], values = Prev_fresh_media_up[[i]], dataset = rep(names(Prev_fresh_media_up[i]),length(Prev_fresh_media_up[[i]])))
+if(i == 1){
+  list_Prev_fresh_media_up <- temp
+} 
+else{
+  list_Prev_fresh_media_up <- bind_rows(list_Prev_fresh_media_up, temp)
+}
+}
+
+list_Prev_fresh_media_up_wide <- list_Prev_fresh_media_up %>%
+  pivot_wider(id_cols = genes, names_from = dataset, values_from = values)
+
+write.xlsx(list_Prev_fresh_media_up_wide , "Prev_fresh_media_up.xlsx")
+```
+
+```{r upset_plots_down, echo = FALSE}
+PA14_stats_upset <- PA14_final_data[,10:17] < 0.05
+rownames(PA14_stats_upset) <- PA14_final_data$Locus_tag
+PA14_genes_upset <- abs(PA14_final_data[,2:9]) >= 1.5
+rownames(PA14_genes_upset) <- PA14_final_data$Locus_tag
+
+PA14_genes_upset_down <- PA14_final_data[,2:9] <= -1.5
+rownames(PA14_genes_upset_down) <- PA14_final_data$Locus_tag
+
+Pseudo_stats_down <- PA14_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Pseudo_conditions_down <- PA14_genes_upset_down %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Pseudo_stats_down)[2] <- "stats_member"
+Pseudo_combine_down <- mutate(Pseudo_conditions_down, "stats_member" = Pseudo_stats_down$stats_member)
+
+Pseudo_upset_down <- Pseudo_combine_down %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Pseudo_upset_down$Condition <- gsub("PA14_Mix_vs_", "", as.character(Pseudo_upset_down$Condition))
+Pseudo_upset_down$Condition <- gsub("_res", "", as.character(Pseudo_upset_down$Condition))
+Pseudo_upset_down$Condition <- gsub(".log2FoldChange", "", as.character(Pseudo_upset_down$Condition))
+Pseudo_upset_down$Condition <- gsub("lasR", "\U0394lasR", as.character(Pseudo_upset_down$Condition))
+
+
+Pseudo_upset_plot_down <- Pseudo_upset_down %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 14)) + 
+  ylab("") +
+  scale_y_continuous(breaks = seq(0, 200, by = 50), limits = c(0,200))
+Pseudo_upset_plot_down
+
+#Staph
+Staph_stats_upset <- Staph_final_data[,9:15] < 0.05
+rownames(Staph_stats_upset) <- Staph_final_data$Locus_tag
+Staph_genes_upset <- abs(Staph_final_data[,2:8]) >= 1.5
+rownames(Staph_genes_upset) <- Staph_final_data$Locus_tag
+
+Staph_genes_upset_down <- Staph_final_data[,2:8] <= -1.5
+rownames(Staph_genes_upset_down) <- Staph_final_data$Locus_tag
+
+Staph_stats_down <- Staph_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Staph_conditions_down <- Staph_genes_upset_down %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Staph_stats_down)[2] <- "stats_member"
+Staph_combine_down <- mutate(Staph_conditions_down, "stats_member" = Staph_stats_down$stats_member)
+
+Staph_upset_down <- Staph_combine_down %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Staph_upset_down$Condition <- gsub("Staph_Mix_vs_", "", as.character(Staph_upset_down$Condition))
+Staph_upset_down$Condition <- gsub("_res", "", as.character(Staph_upset_down$Condition))
+Staph_upset_down$Condition <- gsub(".log2FoldChange", "", as.character(Staph_upset_down$Condition))
+Staph_upset_down$Condition <- gsub("lasR", "\U0394lasR", as.character(Staph_upset_down$Condition))
+
+
+Staph_upset_plot_down <- Staph_upset_down %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 14)) + 
+  scale_y_continuous(breaks = seq(0, 150, by = 50), limits = c(0,150))
+Staph_upset_plot_down
+
+#Strep
+Strep_stats_upset <- Strep_final_data[,9:15] < 0.05
+rownames(Strep_stats_upset) <- Strep_final_data$Locus_tag
+Strep_genes_upset <- abs(Strep_final_data[,2:8]) >= 1.5
+rownames(Strep_genes_upset) <- Strep_final_data$Locus_tag
+
+Strep_genes_upset_down <- Strep_final_data[,2:8] <= -1.5
+rownames(Strep_genes_upset_down) <- Strep_final_data$Locus_tag
+
+Strep_stats_down <- Strep_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Strep_conditions_down <- Strep_genes_upset_down %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Strep_stats_down)[2] <- "stats_member"
+Strep_combine_down <- mutate(Strep_conditions_down, "stats_member" = Strep_stats_down$stats_member)
+
+Strep_upset_down <- Strep_combine_down %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Strep_upset_down$Condition <- gsub("Strep_Mix_vs_", "", as.character(Strep_upset_down$Condition))
+Strep_upset_down$Condition <- gsub("_res", "", as.character(Strep_upset_down$Condition))
+Strep_upset_down$Condition <- gsub(".log2FoldChange", "", as.character(Strep_upset_down$Condition))
+Strep_upset_down$Condition <- gsub("lasR", "\U0394lasR", as.character(Strep_upset_down$Condition))
+
+Strep_upset_plot_down <- Strep_upset_down %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 14)) + 
+  scale_y_continuous(breaks = seq(0, 250, by = 50), limits = c(0,250))
+Strep_upset_plot_down
+
+#Prev
+Prev_stats_upset <- Prev_final_data[,8:13] < 0.05
+rownames(Prev_stats_upset) <- Prev_final_data$Locus_tag
+Prev_genes_upset <- abs(Prev_final_data[,2:7]) >= 1.5
+rownames(Prev_genes_upset) <- Prev_final_data$Locus_tag
+
+Prev_genes_upset_down <- Prev_final_data[,2:7] <= -1.5
+rownames(Prev_genes_upset_down) <- Prev_final_data$Locus_tag
+
+Prev_stats_down <- Prev_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Prev_conditions_down <- Prev_genes_upset_down %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Prev_stats_down)[2] <- "stats_member"
+Prev_combine_down <- mutate(Prev_conditions_down, "stats_member" = Prev_stats_down$stats_member)
+
+Prev_upset_down <- Prev_combine_down %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Prev_upset_down$Condition <- gsub("Prev_Mix_vs_", "", as.character(Prev_upset_down$Condition))
+Prev_upset_down$Condition <- gsub("_res", "", as.character(Prev_upset_down$Condition))
+Prev_upset_down$Condition <- gsub(".log2FoldChange", "", as.character(Prev_upset_down$Condition))
+Prev_upset_down$Condition <- gsub("lasR", "\U0394lasR", as.character(Prev_upset_down$Condition))
+
+Prev_upset_plot_down <- Prev_upset_down %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 14)) +
+  scale_y_continuous(breaks = seq(0, 125, by = 25), limits = c(0,125))
+Prev_upset_plot_down
+```
+
+```{r upset_plots_up, echo = FALSE}
+PA14_genes_upset_up <- PA14_final_data[,2:9] >= 1.5
+rownames(PA14_genes_upset_up) <- PA14_final_data$Locus_tag
+
+Pseudo_stats_up <- PA14_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Pseudo_conditions_up <- PA14_genes_upset_up %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Pseudo_stats_up)[2] <- "stats_member"
+Pseudo_combine_up <- mutate(Pseudo_conditions_up, "stats_member" = Pseudo_stats_up$stats_member)
+
+Pseudo_upset_up <- Pseudo_combine_up %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Pseudo_upset_up$Condition <- gsub("PA14_Mix_vs_", "", as.character(Pseudo_upset_up$Condition))
+Pseudo_upset_up$Condition <- gsub("_res", "", as.character(Pseudo_upset_up$Condition))
+Pseudo_upset_up$Condition <- gsub(".log2FoldChange", "", as.character(Pseudo_upset_up$Condition))
+Pseudo_upset_up$Condition <- gsub("lasR", "\U0394lasR", as.character(Pseudo_upset_up$Condition))
+
+
+Pseudo_upset_plot_up <- Pseudo_upset_up %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("Count") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) + 
+  scale_y_continuous(breaks = seq(0, 200, by = 50), limits = c(0,200))
+Pseudo_upset_plot_up
+
+#Staph
+Staph_genes_upset_up <- Staph_final_data[,2:8] >= 1.5
+rownames(Staph_genes_upset_up) <- Staph_final_data$Locus_tag
+
+Staph_stats_up <- Staph_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Staph_conditions_up <- Staph_genes_upset_up %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Staph_stats_up)[2] <- "stats_member"
+Staph_combine_up <- mutate(Staph_conditions_up, "stats_member" = Staph_stats_up$stats_member)
+
+Staph_upset_up <- Staph_combine_up %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Staph_upset_up$Condition <- gsub("Staph_Mix_vs_", "", as.character(Staph_upset_up$Condition))
+Staph_upset_up$Condition <- gsub("_res", "", as.character(Staph_upset_up$Condition))
+Staph_upset_up$Condition <- gsub(".log2FoldChange", "", as.character(Staph_upset_up$Condition))
+Staph_upset_up$Condition <- gsub("lasR", "\U0394lasR", as.character(Staph_upset_up$Condition))
+
+
+Staph_upset_plot_up <- Staph_upset_up %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("Count") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) +
+  scale_y_continuous(breaks = seq(0, 150, by = 50), limits = c(0,150))
+Staph_upset_plot_up
+
+#Strep
+Strep_genes_upset_up <- Strep_final_data[,2:8] >= 1.5
+rownames(Strep_genes_upset_up) <- Strep_final_data$Locus_tag
+
+Strep_stats_up <- Strep_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Strep_conditions_up <- Strep_genes_upset_up %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Strep_stats_up)[2] <- "stats_member"
+Strep_combine_up <- mutate(Strep_conditions_up, "stats_member" = Strep_stats_up$stats_member)
+
+Strep_upset_up <- Strep_combine_up %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Strep_upset_up$Condition <- gsub("Strep_Mix_vs_", "", as.character(Strep_upset_up$Condition))
+Strep_upset_up$Condition <- gsub("_res", "", as.character(Strep_upset_up$Condition))
+Strep_upset_up$Condition <- gsub(".log2FoldChange", "", as.character(Strep_upset_up$Condition))
+Strep_upset_up$Condition <- gsub("lasR", "\U0394lasR", as.character(Strep_upset_up$Condition))
+
+Strep_upset_plot_up <- Strep_upset_up %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("Count") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) + 
+  scale_y_continuous(breaks = seq(0, 250, by = 50), limits = c(0,250))
+Strep_upset_plot_up
+
+#Prev
+Prev_genes_upset_up <- Prev_final_data[,2:7] >= 1.5
+rownames(Prev_genes_upset_up) <- Prev_final_data$Locus_tag
+
+Prev_stats_up <- Prev_stats_upset %>%
+  as_tibble(rownames = "Locus_tag") %>%
+  gather(Condition, Member, -Locus_tag) %>% 
+  subset(select = -c(Condition))
+
+Prev_conditions_up <- Prev_genes_upset_up %>%
+  as_tibble(rownames = "Locus_tag") %>% 
+  gather(Condition, Member, -Locus_tag)
+  
+colnames(Prev_stats_up)[2] <- "stats_member"
+Prev_combine_up <- mutate(Prev_conditions_up, "stats_member" = Prev_stats_up$stats_member)
+
+Prev_upset_up <- Prev_combine_up %>%
+  filter(Member) %>%
+  dplyr::select(- Member) %>% 
+  filter(stats_member) %>% 
+  dplyr::select(- stats_member)
+
+Prev_upset_up$Condition <- gsub("Prev_Mix_vs_", "", as.character(Prev_upset_up$Condition))
+Prev_upset_up$Condition <- gsub("_res", "", as.character(Prev_upset_up$Condition))
+Prev_upset_up$Condition <- gsub(".log2FoldChange", "", as.character(Prev_upset_up$Condition))
+Prev_upset_up$Condition <- gsub("lasR", "\U0394lasR", as.character(Prev_upset_up$Condition))
+
+Prev_upset_plot_up <- Prev_upset_up %>%
+  group_by(Locus_tag) %>% 
+  summarize(Condition = list(Condition)) %>% 
+  ggplot() + 
+  geom_bar(aes(x=Condition)) +
+  scale_x_upset(order_by = "degree") + 
+  ylab("Count") +
+  theme(axis.title.x = element_text(size = 20, face = "bold"),
+        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) + 
+  scale_y_continuous(breaks = seq(0, 125, by = 25), limits = c(0,125))
+Prev_upset_plot_up
+
+```
+
+```{r upset_combined, echo = FALSE}
+plot_grid(Pseudo_upset_plot_up, Pseudo_upset_plot_down, nrow = 1, ncol = 2)
+plot_grid(Staph_upset_plot_up, Staph_upset_plot_down, nrow = 1, ncol = 2)
+plot_grid(Strep_upset_plot_up, Strep_upset_plot_down, nrow = 1, ncol = 2)
+plot_grid(Prev_upset_plot_up, Prev_upset_plot_down, nrow = 1, ncol = 2)
+```
+
+```{r test_eukledian_distance_PCAs, echo = FALSE}
+PA14_pca_df
+Staph_pca_df
+Strep_pca_df
+Prev_pca_df
+
+PA14_PCA_dist <- PA14_pca_df %>%
+  dplyr::select(PC1, PC2, tx.group)
+
+Staph_PCA_dist <- Staph_pca_df %>%
+  dplyr::select(PC1, PC2, tx.group)
+
+Strep_PCA_dist <- Strep_pca_df %>%
+  dplyr::select(PC1, PC2, tx.group)
+
+Prev_PCA_dist <- Prev_pca_df %>%
+  dplyr::select(PC1, PC2, tx.group)
+
+PA14_means <- left_join(aggregate(PA14_PCA_dist$PC1, list(PA14_PCA_dist$tx.group), FUN=mean),
+  aggregate(PA14_PCA_dist$PC2, list(PA14_PCA_dist$tx.group), FUN=mean), by = "Group.1")
+rownames(PA14_means) <- PA14_means[,1]
+
+Staph_means <- left_join(aggregate(Staph_PCA_dist$PC1, list(Staph_PCA_dist$tx.group), FUN=mean),
+  aggregate(Staph_PCA_dist$PC2, list(Staph_PCA_dist$tx.group), FUN=mean), by = "Group.1")
+rownames(Staph_means) <- Staph_means[,1]
+
+Strep_means <- left_join(aggregate(Strep_PCA_dist$PC1, list(Strep_PCA_dist$tx.group), FUN=mean),
+  aggregate(Strep_PCA_dist$PC2, list(Strep_PCA_dist$tx.group), FUN=mean), by = "Group.1")
+rownames(Strep_means) <- Strep_means[,1]
+
+Prev_means <- left_join(aggregate(Prev_PCA_dist$PC1, list(Prev_PCA_dist$tx.group), FUN=mean),
+  aggregate(Prev_PCA_dist$PC2, list(Prev_PCA_dist$tx.group), FUN=mean), by = "Group.1")
+rownames(Prev_means) <- Prev_means[,1]
+
+PA14_distance <- dist(PA14_means, method = "euclidean", upper = TRUE, diag = TRUE)
+Staph_distance <- dist(Staph_means, method = "euclidean", upper = TRUE, diag = TRUE)
+Strep_distance <- dist(Strep_means, method = "euclidean", upper = TRUE, diag = TRUE)
+Prev_distance <- dist(Prev_means, method = "euclidean", upper = TRUE, diag = TRUE)
+
+
+PA14_dist_matrix <- as.matrix(PA14_distance)
+PA14_vs_mix_dist <- PA14_dist_matrix[c(1,3,4,5,6,7,8,9),2]
+PA14_vs_mix_dist <- data.frame("vs" = c("Mix", "Mix", "Mix", "Mix", "Mix", "Mix","Mix", "Mix"), "value" = PA14_vs_mix_dist)
+PA14_vs_mix_dist <- (data.frame(names = row.names(PA14_vs_mix_dist), PA14_vs_mix_dist))
+PA14_vs_mix_dist$names <- gsub("lasR", "\U0394lasR", as.character(PA14_vs_mix_dist$names))
+PA14_vs_mix_dist <- PA14_vs_mix_dist %>% arrange(value)
+PA14_vs_mix_dist <- mutate(PA14_vs_mix_dist, "order" = c(1,2,3,4,5,6,7,8))
+PA14_vs_mix_dist$names <- factor(PA14_vs_mix_dist$names, levels = (PA14_vs_mix_dist$names)[order(PA14_vs_mix_dist$order)])
+
+
+Staph_dist_matrix <- as.matrix(Staph_distance)
+Staph_vs_mix_dist <- Staph_dist_matrix[c(2,3,4,5,6,7,8),1]
+Staph_vs_mix_dist <- data.frame("vs" = c("Mix", "Mix", "Mix", "Mix", "Mix", "Mix","Mix"), "value" = Staph_vs_mix_dist)
+Staph_vs_mix_dist <- (data.frame(names = row.names(Staph_vs_mix_dist), Staph_vs_mix_dist))
+Staph_vs_mix_dist$names <- gsub("lasR", "\U0394lasR", as.character(Staph_vs_mix_dist$names))
+Staph_vs_mix_dist <- Staph_vs_mix_dist %>% arrange(value)
+Staph_vs_mix_dist <- mutate(Staph_vs_mix_dist, "order" = c(1,2,3,4,5,6,7))
+Staph_vs_mix_dist$names <- factor(Staph_vs_mix_dist$names, levels = (Staph_vs_mix_dist$names)[order(Staph_vs_mix_dist$order)])
+
+
+Strep_dist_matrix <- as.matrix(Strep_distance)
+Strep_vs_mix_dist <- Strep_dist_matrix[c(2,3,4,5,6,7,8),1]
+Strep_vs_mix_dist <- data.frame("vs" = c("Mix", "Mix", "Mix", "Mix", "Mix", "Mix","Mix"), "value" = Strep_vs_mix_dist)
+Strep_vs_mix_dist <- (data.frame(names = row.names(Strep_vs_mix_dist), Strep_vs_mix_dist))
+Strep_vs_mix_dist$names <- gsub("lasR", "\U0394lasR", as.character(Strep_vs_mix_dist$names))
+Strep_vs_mix_dist <- Strep_vs_mix_dist %>% arrange(value)
+Strep_vs_mix_dist <- mutate(Strep_vs_mix_dist, "order" = c(1,2,3,4,5,6,7))
+Strep_vs_mix_dist$names <- factor(Strep_vs_mix_dist$names, levels = (Strep_vs_mix_dist$names)[order(Strep_vs_mix_dist$order)])
+
+
+Prev_dist_matrix <- as.matrix(Prev_distance)
+Prev_vs_mix_dist <- Prev_dist_matrix[c(2,3,4,5,6,7),1]
+Prev_vs_mix_dist <- data.frame("vs" = c("Mix", "Mix", "Mix", "Mix", "Mix", "Mix"), "value" = Prev_vs_mix_dist)
+Prev_vs_mix_dist <- (data.frame(names = row.names(Prev_vs_mix_dist), Prev_vs_mix_dist))
+Prev_vs_mix_dist$names <- gsub("lasR", "\U0394lasR", as.character(Prev_vs_mix_dist$names))
+Prev_vs_mix_dist <- Prev_vs_mix_dist %>% arrange(value)
+Prev_vs_mix_dist <- mutate(Prev_vs_mix_dist, "order" = c(1,2,3,4,5,6))
+Prev_vs_mix_dist$names <- factor(Prev_vs_mix_dist$names, levels = (Prev_vs_mix_dist$names)[order(Prev_vs_mix_dist$order)])
+
+
+PA14_dist_matrix_heatmap <- PA14_vs_mix_dist %>%
+  ggplot(aes(x = vs, y = names, fill = value, by = order)) +
+  geom_tile(colour = "black") + 
+  ggtitle("Pseudomonas") +
+  scale_fill_gradient(low = "white",
+                      high = "black",
+                      guide = "colourbar") +
+  xlab("") + 
+  ylab("") + 
+  theme_minimal() + 
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+  
+plot(PA14_dist_matrix_heatmap)
+
+Staph_dist_matrix_heatmap <- Staph_vs_mix_dist %>%
+  ggplot(aes(x = vs, y = names, fill = value, by = order)) +
+  geom_tile(colour = "black") + 
+  ggtitle("Staphylococcus") +
+  scale_fill_gradient(low = "white",
+                      high = "#1B3F7C",
+                      guide = "colourbar") +
+  xlab("") + 
+  ylab("") + 
+  theme_minimal() + 
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+  
+plot(Staph_dist_matrix_heatmap)
+
+Strep_dist_matrix_heatmap <- Strep_vs_mix_dist %>%
+  ggplot(aes(x = vs, y = names, fill = value, by = order)) +
+  geom_tile(colour = "black") + 
+  ggtitle("Streptococcus") +
+  scale_fill_gradient(low = "white",
+                      high = "#74160D",
+                      guide = "colourbar") +
+  xlab("") + 
+  ylab("") + 
+  theme_minimal() + 
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+  
+plot(Strep_dist_matrix_heatmap)
+
+Prev_dist_matrix_heatmap <- Prev_vs_mix_dist %>%
+  ggplot(aes(x = vs, y = names, fill = value, by = order)) +
+  geom_tile(colour = "black") + 
+  ggtitle("Prevotella") +
+  scale_fill_gradient(low = "white",
+                      high = "#3A7D22",
+                      guide = "colourbar") +
+  xlab("") + 
+  ylab("") + 
+  theme_minimal() + 
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(hjust = 1.5, face = "italic", size = 18))
+  
+plot(Prev_dist_matrix_heatmap)
+
+plot_grid(PA14_dist_matrix_heatmap, Staph_dist_matrix_heatmap, Strep_dist_matrix_heatmap, Prev_dist_matrix_heatmap, ncol = 4)
+```
+
+```{r Screen_data, echo = FALSE}
+Screen_data <- read.xlsx("genetic screen.xlsx")
+Rendi_data <- Screen_data[Screen_data$Bacteria %in% c("PA14", "Streptococcus"), ]
+Bassam_data <- Screen_data[Screen_data$Bacteria == "Prevotella", ]
+
+wilcox.test(Rendi_data[1:4,1], Rendi_data[5:39,1], alternative = "two.sided")
+
+Rendi_Screen_plot <- Rendi_data %>%
+  ggplot(aes(x=Bacteria, y = CFU.reduction)) +
+  geom_jitter(height = 0, width = 0.3) +
+  stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
+  theme(axis.title.y = element_text(size = 18),
+        axis.text = element_text(size = 14),
+        axis.text.x = element_text(face = "bold.italic")) + 
+  xlab("") +
+  ylab(bquote(paste("log"["10"]*"(CFU/ml) reduction"))) +
+  scale_x_discrete(labels = c("Pseudomonas", "Streptococcus")) +
+  geom_signif(comparisons = list(c("PA14", "Streptococcus")), map_signif_level = TRUE, y_position = c(4.25)) +
+  scale_y_continuous(limits = c(0,7))
+
+Rendi_Screen_plot
+
+Bassam_Screen_plot <- Bassam_data %>%
+  ggplot(aes(x=Bacteria, y = CFU.reduction)) +
+  geom_jitter(height = 0, width = 0.3) +
+  stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
+  theme(axis.title.x = element_text(size = 16),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 14),
+        axis.text.y = element_blank(),
+        axis.ticks =element_blank(), 
+        axis.text.x = element_text(face = "bold.italic"),
+        plot.margin = unit(c(5.5, 5.5, 5.5, 27.5), "pt")) +
+  xlab("") + 
+  ylab("") +
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,7)) 
+
+Bassam_Screen_plot
+
+combined <- plot_grid(Rendi_Screen_plot, Bassam_Screen_plot, labels = "AUTO", label_size = 24)
+x.grob <- textGrob("Bacterial Screen", 
+                   gp=gpar(fontsize = 18))
+
+grid.arrange(arrangeGrob(combined, bottom = x.grob))
+
+```
+
+```{r Antibiotic_tolerance, echo = FALSE}
+tob <- read.xlsx("Antibiotic_tolerance_at_15_min_lasR.xlsx")
+tob$CFU <- log10(tob$CFU)
+tob <- replace(tob, tob=="-Inf", 0)
+PA14_tob <- tob %>% subset(Strain %in% c("PA14", "Mix (PA14)", "lasR", "Mix (lasR)"))
+Staph_tob <- tob %>% subset(Strain %in% c("Staph", "Mix (Staph)"))
+Strep_tob <- tob %>% subset(Strain %in% c("Strep", "Mix (Strep)"))
+Prev_tob <- tob %>% subset(Strain %in% c("Prev", "Mix (Prev)"))
+
+PA14_tob$Mix_vs_mono <- as.factor(PA14_tob$Mix_vs_mono)
+PA14_tob$condition <- as.factor(PA14_tob$condition)
+PA14_tob$Replicate <- as.factor(PA14_tob$Replicate)
+PA14_tob$Strain <- as.factor(PA14_tob$Strain)
+PA14_tob$Mix_vs_mono <- factor(PA14_tob$Mix_vs_mono, levels = rev(levels(PA14_tob$Mix_vs_mono)))
+PA14_tob$condition <- factor(PA14_tob$condition, levels = rev(levels(PA14_tob$condition)))
+PA14_tob$Strain <- factor(PA14_tob$Strain, levels = rev(levels(PA14_tob$Strain)))
+PA14_tob <- PA14_tob %>%
+  group_by(Strain, Mix_vs_mono) %>%
+  mutate(mean_value = mean(CFU)) %>% 
+  mutate(sd = sd(CFU))
+
+
+Staph_tob$Mix_vs_mono <- as.factor(Staph_tob$Mix_vs_mono)
+Staph_tob$condition <- as.factor(Staph_tob$condition)
+Staph_tob$Replicate <- as.factor(Staph_tob$Replicate)
+Staph_tob$Strain <- as.factor(Staph_tob$Strain)
+Staph_tob$Mix_vs_mono <- factor(Staph_tob$Mix_vs_mono, levels = rev(levels(Staph_tob$Mix_vs_mono)))
+Staph_tob$condition <- factor(Staph_tob$condition, levels = rev(levels(Staph_tob$condition)))
+Staph_tob$Strain <- factor(Staph_tob$Strain, levels = rev(levels(Staph_tob$Strain)))
+Staph_tob <- Staph_tob %>%
+  group_by(Strain, Mix_vs_mono) %>%
+  mutate(mean_value = mean(CFU)) %>% 
+  mutate(sd = sd(CFU))
+
+Strep_tob$Mix_vs_mono <- as.factor(Strep_tob$Mix_vs_mono)
+Strep_tob$condition <- as.factor(Strep_tob$condition)
+Strep_tob$Replicate <- as.factor(Strep_tob$Replicate)
+Strep_tob$Strain <- as.factor(Strep_tob$Strain)
+Strep_tob$Mix_vs_mono <- factor(Strep_tob$Mix_vs_mono, levels = rev(levels(Strep_tob$Mix_vs_mono)))
+Strep_tob$condition <- factor(Strep_tob$condition, levels = rev(levels(Strep_tob$condition)))
+Strep_tob$Strain <- factor(Strep_tob$Strain, levels = rev(levels(Strep_tob$Strain)))
+Strep_tob <- Strep_tob %>%
+  group_by(Strain, Mix_vs_mono) %>%
+  mutate(mean_value = mean(CFU)) %>% 
+  mutate(sd = sd(CFU))
+
+Prev_tob$Mix_vs_mono <- as.factor(Prev_tob$Mix_vs_mono)
+Prev_tob$condition <- as.factor(Prev_tob$condition)
+Prev_tob$Replicate <- as.factor(Prev_tob$Replicate)
+Prev_tob$Strain <- as.factor(Prev_tob$Strain)
+Prev_tob$Mix_vs_mono <- factor(Prev_tob$Mix_vs_mono, levels = rev(levels(Prev_tob$Mix_vs_mono)))
+Prev_tob$condition <- factor(Prev_tob$condition, levels = rev(levels(Prev_tob$condition)))
+Prev_tob$Strain <- factor(Prev_tob$Strain, levels = rev(levels(Prev_tob$Strain)))
+Prev_tob <- Prev_tob %>%
+  group_by(Strain, Mix_vs_mono) %>%
+  mutate(mean_value = mean(CFU)) %>% 
+  mutate(sd = sd(CFU))
+
+
+PA14_tob_barplot <- PA14_tob %>%
+  ggplot(aes(x = condition, y = mean_value, fill = Order)) + 
+  geom_bar(stat = "identity", position = position_dodge(0.9), colour = "black") + 
+  geom_errorbar(aes(ymax = PA14_tob$mean_value+PA14_tob$sd, ymin = PA14_tob$mean_value-PA14_tob$sd), width = 0.2,
+                position = position_dodge(0.9)) +
+  geom_point(aes(y = CFU), stat = "identity", position = position_dodge(0.9)) +
+  scale_fill_manual(labels = c("Mono", "Mono (\U0394lasR)", "Mix", "Mix (\U0394lasR)"), values = c("#C1C1C1", "orange", "#313131", "orange4")) +
+  xlab("Condition") + 
+  ylab(bquote(paste("log"["10"]*"(CFU/ml) ",italic("Pseudomonas")))) + 
+  theme(plot.margin = unit(c(5.5, 19.5, 5.5, 45.5), "pt"),
+        axis.title.x = element_blank(), 
+        axis.text.x = element_text(size = 16),
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16)) + 
+  labs(fill = "Growth condition") +
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,8))
+  
+  
+PA14_tob_barplot
+
+Staph_tob_barplot <- Staph_tob %>%
+  ggplot(aes(x = condition, y = mean_value, fill = Order)) + 
+  geom_bar(stat = "identity", position = position_dodge(0.9), colour = "black") + 
+  geom_errorbar(aes(ymax = mean_value+sd, ymin = mean_value-sd), width = 0.2, position= position_dodge(0.9)) + 
+  geom_point(aes(y = CFU), stat = "identity", position = position_dodge(0.9)) + 
+  scale_fill_manual(labels = c("Mono", "Mix", "Mix (\U0394lasR)"), values = c("#57BFFF", "#092E6D", "grey80")) + 
+  xlab("Condition") + 
+  ylab(bquote(paste("log"["10"]*"(CFU/ml) ",italic("Staphylococcus")))) + 
+  theme(plot.margin = unit(c(5.5, 19.5, 5.5, 45.5), "pt"),
+        axis.title.x = element_blank(), 
+        axis.text.x = element_text(size = 16),
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16)) +
+  labs(fill = "Growth condition") + 
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,8))
+
+
+Staph_tob_barplot
+
+Strep_tob_barplot <- Strep_tob %>%
+  ggplot(aes(x = condition, y = mean_value, fill = Mix_vs_mono)) + 
+  geom_bar(stat = "identity", position = position_dodge(0.9), colour = "black") + 
+  geom_errorbar(aes(ymax = mean_value+sd, ymin = mean_value-sd), width = 0.2, position= position_dodge(0.9)) + 
+  geom_point(aes(y = CFU), stat = "identity", position = position_dodge(0.9)) + 
+  scale_fill_manual(labels = c("Mono", "Mix", "Mix (\U0394lasR)"),values = c("#F84E55", "#6A0003", "grey80")) +
+  xlab("Condition") + 
+  ylab(bquote(paste("log"["10"]*"(CFU/ml) ",italic("Streptococcus")))) + 
+  theme(plot.margin = unit(c(5.5, 5.5, 5.5, 45.5), "pt"),
+        axis.title.x = element_blank(), 
+        axis.text.x = element_text(size = 16),
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16)) +
+  labs(fill = "Growth condition") +
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,8))
+
+Strep_tob_barplot
+
+Prev_tob_barplot <- Prev_tob %>%
+  ggplot(aes(x = condition, y = mean_value, fill = Mix_vs_mono)) + 
+  geom_bar(stat = "identity", position = position_dodge(0.9), colour = "black") + 
+  geom_errorbar(aes(ymax = Prev_tob$mean_value+Prev_tob$sd, ymin = Prev_tob$mean_value-Prev_tob$sd), width = 0.2, position= position_dodge(0.9)) + 
+  geom_point(aes(y = CFU), stat = "identity", position = position_dodge(0.9)) + 
+  scale_fill_manual(labels = c("Mono", "Mix", "Mix (\U0394lasR)"), values = c("lightgreen", "#0F7003", "grey80")) + 
+  xlab("Condition") + 
+  ylab(bquote(paste("log"[10]*"(CFU/ml)",italic(" Prevotella")))) + 
+  theme(plot.margin = unit(c(5.5, 5.5, 5.5, 45.5), "pt"),
+        axis.title.x = element_blank(), 
+        axis.text.x = element_text(size = 16),
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16)) +
+  labs(fill = "Growth condition") + 
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,8)) 
+  
+Prev_tob_barplot
+
+plot_grid(PA14_tob_barplot, Staph_tob_barplot, Strep_tob_barplot, Prev_tob_barplot, labels = "AUTO", label_size = 24)
+
+
+
+Stat_order_PA14 <- data.frame(Stat_order = c("AU","AU","AU","AU","AU","AU","AU","AU","AU",
+                                             "BU","BU","BU","BU","BU","BU","BU","BU","BU",
+                                             "CU","CU","CU","CU","CU","CU","CU","CU","CU",
+                                             "DU","DU","DU","DU","DU","DU","DU","DU","DU",
+                                             "AT","AT","AT","AT","AT","AT","AT","AT","AT",
+                                             "BT","BT","BT","BT","BT","BT","BT","BT","BT",
+                                             "CT","CT","CT","CT","CT","CT","CT","CT","CT",
+                                             "DT","DT","DT","DT","DT","DT","DT","DT","DT"))
+Stat_order_SSP <- data.frame(Stat_order = c("AU","AU","AU","AU","AU","AU","AU","AU","AU",
+                                            "BU","BU","BU","BU","BU","BU","BU","BU","BU",
+                                            "CU","CU","CU","CU","CU","CU","CU","CU","CU",
+                                            "AT","AT","AT","AT","AT","AT","AT","AT","AT",
+                                            "BT","BT","BT","BT","BT","BT","BT","BT","BT",
+                                            "CT","CT","CT","CT","CT","CT","CT","CT","CT"))
+
+PA14_tob_stats <- cbind(PA14_tob,Stat_order_PA14)
+Staph_tob_stats <- cbind(Staph_tob, Stat_order_SSP)
+Strep_tob_stats <- cbind(Strep_tob, Stat_order_SSP)
+Prev_tob_stats <- cbind(Prev_tob, Stat_order_SSP)
+
+
+PA14_tob_anova <- aov(CFU ~ condition, data = PA14_tob_stats)
+summary(PA14_tob_anova)
+PA14_Bon <- pairwise.t.test(PA14_tob_stats$CFU, PA14_tob_stats$Stat_order, p.adjust.method = "bonferroni")
+PA14_Bon
+
+Staph_tob_anova <- aov(CFU ~ condition, data = Staph_tob_stats)
+summary(Staph_tob_anova)
+Staph_Bon <- pairwise.t.test(Staph_tob_stats$CFU, Staph_tob_stats$Stat_order, p.adjust.method = "bonferroni")
+Staph_Bon
+
+Strep_tob_anova <- aov(CFU ~ condition, data = Strep_tob_stats)
+summary(Strep_tob_anova)
+Strep_Bon <- pairwise.t.test(Strep_tob_stats$CFU, Strep_tob_stats$Stat_order, p.adjust.method = "bonferroni")
+Strep_Bon
+
+Prev_tob_anova <- aov(CFU ~ condition, data = Prev_tob_stats)
+summary(Prev_tob_anova)
+Prev_Bon <- pairwise.t.test(Prev_tob_stats$CFU, Prev_tob_stats$Stat_order, p.adjust.method = "bonferroni")
+Prev_Bon
+```
