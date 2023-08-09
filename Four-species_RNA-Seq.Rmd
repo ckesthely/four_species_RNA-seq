@@ -3,7 +3,6 @@ title: "4_bug_RNA-Seq_analysis"
 output: word_document
 date: "2022-11-11"
 editor_options:
-  chunk_output_type: console
 ---
 
 ```{r, setup, include=FALSE, echo = FALSE}
@@ -49,7 +48,7 @@ PA14_read_counts <- data.frame(PA14_read_counts[,-1], row.names=PA14_read_counts
 i <- (1:36)
 PA14_read_counts[,i] <- apply(PA14_read_counts[,i], 2, function(x) as.numeric(as.character(x)))
 PA14_read_counts <- as.matrix(PA14_read_counts)
-comparisons <- c("B", "B", "B", "B", "A", "A", "A", "A", "C", "C", "C", "C", "D", "D", "D", "D", "E", "E", "E", "E", "F", "F", "F", "F", "G", "G", "G", "G", "H", "H", "H", "H", "I", "I", "I", "I")
+PA14_comparisons <- c("B", "B", "B", "B", "A", "A", "A", "A", "C", "C", "C", "C", "D", "D", "D", "D", "E", "E", "E", "E", "F", "F", "F", "F", "G", "G", "G", "G", "H", "H", "H", "H", "I", "I", "I", "I")
 
 Staph_read_counts <- read.table("Staph_read_counts/Staph_all_counts.txt", 
                                          sep="\t", 
@@ -82,7 +81,7 @@ Prev_read_counts[,i] <- apply(Prev_read_counts[,i], 2, function(x) as.numeric(as
 Prev_read_counts <- as.matrix(Prev_read_counts)
 
 PA14_colData <- read.xlsx("PA14_metadata.xlsx")
-PA14_colData <- mutate(PA14_colData, comparisons)
+PA14_colData <- mutate(PA14_colData, PA14_comparisons)
 PA14_colData <- PA14_colData[order(PA14_colData$Sample),]
 
 Staph_colData <- read.xlsx("Staph_metadata.xlsx")
@@ -103,7 +102,7 @@ Prev_colData$tx.group
 ```
 
 ```{r make_tx.group_factor, echo=FALSE}
-PA14_colData$comparisons <- as.factor(PA14_colData$comparisons)
+PA14_colData$comparisons <- as.factor(PA14_colData$PA14_comparisons)
 
 Staph_colData$tx.group <- factor(Staph_colData$tx.group, levels = c("Mix", "Mix_base", "Mix_lasR", "Mix_lasR_swap",
                                                                   "Mix_lasR_tob", "Mix_swap", "Mix_tob", "Staph"))
@@ -726,45 +725,82 @@ pairwise.adonis(Prev_pca$x, factors = Prev_colData$tx.group, sim.method = "eucli
 PA14_topVarGenes <- head(order(rowVars(assay(PA14_rld)), decreasing = TRUE), 50)
 PA14_mat  <- assay(PA14_rld)[PA14_topVarGenes,]
 PA14_mat  <- PA14_mat - rowMeans(PA14_mat)
-PA14_anno <- data.frame(condition = colData(PA14_rld)[,"group"])
-PA14_anno$condition <- gsub("lasR", "\U0394lasR", as.character(PA14_anno$condition))
-PA14_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(9, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "PA14", "\U0394lasR"))))))
-PA14_heatmap <- pheatmap(PA14_mat, annotation_col = PA14_anno, fontsize_row = 8.5, name = "log2FC",
-                         annotation_colors = PA14_heatmap_legend_cols, show_colnames = FALSE)
+PA14_anno <- data.frame(Condition = colData(PA14_rld)[,"group"])
+PA14_anno$Condition <- gsub("lasR", "\U0394lasR", as.character(PA14_anno$Condition))
+PA14_heatmap_legend_cols <- list(Condition = c(setNames(brewer.pal(9, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "PA14", "\U0394lasR")))))
+PA14_heatmap <- pheatmap(PA14_mat,
+                         annotation_col = PA14_anno, 
+                          fontsize_row = 5.5, 
+                          name = "log2FC", 
+                          annotation_colors = PA14_heatmap_legend_cols, 
+                          show_colnames = FALSE,
+                          heatmap_legend_param = list(
+                           legend_height = unit(3.5, "cm")))
 plot(PA14_heatmap)
+
+png(file = "PA14_heatmap.png", height = 13.41, width = 26.99, units = "cm", res = 600)
+PA14_heatmap
+dev.off()
 
 #Staph
 Staph_topVarGenes <- head(order(rowVars(assay(Staph_rld)), decreasing = TRUE), 50)
 Staph_mat  <- assay(Staph_rld)[Staph_topVarGenes,]
 Staph_mat  <- Staph_mat - rowMeans(Staph_mat)
-Staph_anno <- data.frame(condition = colData(Staph_rld)[,"group"])
-Staph_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Staph_anno$condition))
-Staph_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Staph"))))))
-Staph_heatmap <- pheatmap(Staph_mat, annotation_col = Staph_anno, fontsize_row = 8.5, name = "log2FC", 
-                          annotation_colors = Staph_heatmap_legend_cols, show_colnames = FALSE)
+Staph_anno <- data.frame(Condition = colData(Staph_rld)[,"group"])
+Staph_anno$Condition <- gsub("lasR", "\U0394lasR", as.character(Staph_anno$Condition))
+Staph_heatmap_legend_cols <- (list(Condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Staph"))))))
+Staph_heatmap <- pheatmap(Staph_mat, 
+                          annotation_col = Staph_anno, 
+                          fontsize_row = 5.5, 
+                          name = "log2FC", 
+                          annotation_colors = Staph_heatmap_legend_cols, 
+                          show_colnames = FALSE,
+                          heatmap_legend_param = list(
+                           legend_height = unit(3.5, "cm")))
 plot(Staph_heatmap)
+png(file = "Staph_heatmap.png", height = 13.41, width = 26.99, units = "cm", res = 600)
+Staph_heatmap
+dev.off()
 
 #Strep
 Strep_topVarGenes <- head(order(rowVars(assay(Strep_rld)), decreasing = TRUE), 50)
 Strep_mat  <- assay(Strep_rld)[Strep_topVarGenes,]
 Strep_mat  <- Strep_mat - rowMeans(Strep_mat)
-Strep_anno <- data.frame(condition = colData(Strep_rld)[,"group"])
-Strep_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Strep_anno$condition))
-Strep_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Strep"))))))
-Strep_heatmap <- pheatmap(Strep_mat, annotation_col = Strep_anno, fontsize_row = 6.5, name = "log2FC", 
-                          annotation_colors = Strep_heatmap_legend_cols, show_colnames = FALSE)
+Strep_anno <- data.frame(Condition = colData(Strep_rld)[,"group"])
+Strep_anno$Condition <- gsub("lasR", "\U0394lasR", as.character(Strep_anno$Condition))
+Strep_heatmap_legend_cols <- (list(Condition = c(setNames(brewer.pal(8, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob", "Strep"))))))
+Strep_heatmap <- pheatmap(Strep_mat, 
+                          annotation_col = Strep_anno, 
+                          fontsize_row = 6.5, 
+                          name = "log2FC", 
+                          annotation_colors = Strep_heatmap_legend_cols, 
+                          show_colnames = FALSE,
+                          heatmap_legend_param = list(
+                           legend_height = unit(3.5, "cm")))
 plot(Strep_heatmap)
+png(file = "Strep_heatmap.png", height = 13.41, width = 26.99, units = "cm", res = 600)
+Strep_heatmap
+dev.off()
 
 #Prev
 Prev_topVarGenes <- head(order(rowVars(assay(Prev_rld)), decreasing = TRUE), 50)
 Prev_mat  <- assay(Prev_rld)[Prev_topVarGenes,]
 Prev_mat  <- Prev_mat - rowMeans(Prev_mat)
-Prev_anno <- data.frame(condition = colData(Prev_rld)[,"group"])
-Prev_anno$condition <- gsub("lasR", "\U0394lasR", as.character(Prev_anno$condition))
-Prev_heatmap_legend_cols <- (list(condition = c(setNames(brewer.pal(7, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob"))))))
-Prev_heatmap <- pheatmap(Prev_mat, annotation_col = Prev_anno, fontsize_row = 6.5, name = "log2FC", 
-                         annotation_colors = Prev_heatmap_legend_cols, show_colnames = FALSE)
+Prev_anno <- data.frame(Condition = colData(Prev_rld)[,"group"])
+Prev_anno$Condition <- gsub("lasR", "\U0394lasR", as.character(Prev_anno$Condition))
+Prev_heatmap_legend_cols <- (list(Condition = c(setNames(brewer.pal(7, "Set1"), factor(c("Mix", "Mix_base", "Mix_\U0394lasR", "Mix_\U0394lasR_swap", "Mix_\U0394lasR_tob", "Mix_swap", "Mix_tob"))))))
+Prev_heatmap <- pheatmap(Prev_mat, 
+                         annotation_col = Prev_anno,
+                         fontsize_row = 5.5, 
+                         name = "log2FC", 
+                         annotation_colors = Prev_heatmap_legend_cols, 
+                         show_colnames = FALSE,
+                         heatmap_legend_param = list(
+                           legend_height = unit(3.5, "cm")))
 plot(Prev_heatmap)
+png(file = "Prev_heatmap.png", height = 13.41, width = 26.99, units = "cm", res = 600)
+Prev_heatmap
+dev.off()
 ```
 
 ```{r venn_diagrams_Pseudomonas, echo=FALSE}
@@ -834,18 +870,21 @@ Pseudo_Mix_tob_down <- Pseudo_Mix_tob_stats %>%
 
 #Venn diagrams
 venn.diagram(x = list(Pseudo_Mix_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag, Pseudo_Mix_lasR_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob","Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob","Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Pseudo_Mix_fresh_media_down.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 
 Pseudo_fresh_media_down <- calculate.overlap(list(Pseudo_Mix_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag, Pseudo_Mix_lasR_swap_down$Locus_tag, Pseudo_Mix_tob_down$Locus_tag))
@@ -892,18 +931,21 @@ Pseudo_Mix_tob_up <- Pseudo_Mix_tob_stats %>%
 
 #Venn diagrams
 venn.diagram(x = list(Pseudo_Mix_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag, Pseudo_Mix_lasR_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Pseudo_Mix_fresh_media_up.png",
-             imagetype="png",
+            imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Pseudo_fresh_media_up <- calculate.overlap(list(Pseudo_Mix_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag, Pseudo_Mix_lasR_swap_up$Locus_tag, Pseudo_Mix_tob_up$Locus_tag))
 for(i in 1:length(Pseudo_fresh_media_up)){
@@ -999,18 +1041,21 @@ Staph_Mix_tob_up <- Staph_Mix_tob_stats %>%
 
 #Down regulated genes Venn diagrams
 venn.diagram(x = list(Staph_Mix_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag, Staph_Mix_lasR_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Staph_Mix_fresh_media_down.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 
 Staph_fresh_media_down <- calculate.overlap(list(Staph_Mix_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag, Staph_Mix_lasR_swap_down$Locus_tag, Staph_Mix_tob_down$Locus_tag))
@@ -1031,18 +1076,21 @@ write.xlsx(list_Staph_fresh_media_down_wide , "Staph_fresh_media_down.xlsx")
 
 #Up regulated genes Venn diagrams
 venn.diagram(x = list(Staph_Mix_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag, Staph_Mix_lasR_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Staph_Mix_fresh_media_up.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Staph_fresh_media_up <- calculate.overlap(list(Staph_Mix_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag, Staph_Mix_lasR_swap_up$Locus_tag, Staph_Mix_tob_up$Locus_tag))
 for(i in 1:length(Staph_fresh_media_up)){
@@ -1137,18 +1185,21 @@ Strep_Mix_tob_up <- Strep_Mix_tob_stats %>%
 
 #Down regulated genes Venn diagrams
 venn.diagram(x = list(Strep_Mix_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag, Strep_Mix_lasR_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Strep_Mix_fresh_media_down.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Strep_fresh_media_down <- calculate.overlap(list(Strep_Mix_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag, Strep_Mix_lasR_swap_down$Locus_tag, Strep_Mix_tob_down$Locus_tag))
 for(i in 1:length(Strep_fresh_media_down)){
@@ -1168,18 +1219,21 @@ write.xlsx(list_Strep_fresh_media_down_wide , "Strep_fresh_media_down.xlsx")
 
 #Up regulated genes Venn diagrams
 venn.diagram(x = list(Strep_Mix_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag, Strep_Mix_lasR_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Strep_Mix_fresh_media_up.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Strep_fresh_media_up <- calculate.overlap(list(Strep_Mix_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag, Strep_Mix_lasR_swap_up$Locus_tag, Strep_Mix_tob_up$Locus_tag))
 for(i in 1:length(Strep_fresh_media_up)){
@@ -1264,18 +1318,21 @@ Prev_Mix_tob_up <- Prev_Mix_tob_stats %>%
 
 #Down regulated genes Venn diagrams
 venn.diagram(x = list(Prev_Mix_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag, Prev_Mix_lasR_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Prev_Mix_fresh_media_down.png",
              imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Prev_fresh_media_down <- calculate.overlap(list(Prev_Mix_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag, Prev_Mix_lasR_swap_down$Locus_tag, Prev_Mix_tob_down$Locus_tag))
 for(i in 1:length(Prev_fresh_media_down)){
@@ -1295,18 +1352,21 @@ write.xlsx(list_Prev_fresh_media_down_wide , "Prev_fresh_media_down.xlsx")
 
 #Up regulated genes Venn diagrams
 venn.diagram(x = list(Prev_Mix_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag, Prev_Mix_lasR_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag),
-             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR_swap", 
-                                "Mix_\U0394lasR_tob"),
+             category.names = c("Mix_swap", "Mix_tob", "Mix_\U0394lasR\n_swap", 
+                                "Mix_\U0394lasR\n_tob"),
              filename = "Prev_Mix_fresh_media_up.png",
-             imagetype="png",
+            imagetype="png",
              output = FALSE,
              lty = "blank",
              fill = c("green", 'red', 'blue', "yellow"),
-             cat.cex = 1.3,
+             cat.cex = 1.75,
              euler.d = TRUE,
-             scaled = TRUE,
-             margin = 0.02,
-             cat.fontface = c('plain', 'plain', 'plain', 'plain'))
+             scaled = FALSE,
+             margin = 0.15,
+             cex = 1.5,
+             cat.fontface = c('bold', 'bold', 'bold', 'bold'),
+             cat.dist = c(.24,.24,.16,.16),
+             cat.pos = c(330,30,345,15))
 
 Prev_fresh_media_up <- calculate.overlap(list(Prev_Mix_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag, Prev_Mix_lasR_swap_up$Locus_tag, Prev_Mix_tob_up$Locus_tag))
 for(i in 1:length(Prev_fresh_media_up)){
@@ -1364,9 +1424,10 @@ Pseudo_upset_plot_down <- Pseudo_upset_down %>%
   ggplot() + 
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
         axis.title.y = element_blank(),
-        axis.text.y = element_text(size = 14)) + 
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   ylab("") +
   scale_y_continuous(breaks = seq(0, 200, by = 50), limits = c(0,200))
 Pseudo_upset_plot_down
@@ -1411,9 +1472,10 @@ Staph_upset_plot_down <- Staph_upset_down %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
+    theme(axis.title.x = element_text(size = 28, face = "bold"),
         axis.title.y = element_blank(),
-        axis.text.y = element_text(size = 14)) + 
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   scale_y_continuous(breaks = seq(0, 150, by = 50), limits = c(0,150))
 Staph_upset_plot_down
 
@@ -1456,9 +1518,10 @@ Strep_upset_plot_down <- Strep_upset_down %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
+    theme(axis.title.x = element_text(size = 28, face = "bold"),
         axis.title.y = element_blank(),
-        axis.text.y = element_text(size = 14)) + 
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   scale_y_continuous(breaks = seq(0, 250, by = 50), limits = c(0,250))
 Strep_upset_plot_down
 
@@ -1501,9 +1564,10 @@ Prev_upset_plot_down <- Prev_upset_down %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
         axis.title.y = element_blank(),
         axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   scale_y_continuous(breaks = seq(0, 125, by = 25), limits = c(0,125))
 Prev_upset_plot_down
 ```
@@ -1543,9 +1607,10 @@ Pseudo_upset_plot_up <- Pseudo_upset_up %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("Count") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
-        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
-        axis.text.y = element_text(size = 14)) + 
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
+        axis.title.y = element_text(size = 28, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) + 
   scale_y_continuous(breaks = seq(0, 200, by = 50), limits = c(0,200))
 Pseudo_upset_plot_up
 
@@ -1584,9 +1649,10 @@ Staph_upset_plot_up <- Staph_upset_up %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("Count") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
-        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
+        axis.title.y = element_text(size = 28, vjust = -14, face = "bold"),
         axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   scale_y_continuous(breaks = seq(0, 150, by = 50), limits = c(0,150))
 Staph_upset_plot_up
 
@@ -1624,9 +1690,10 @@ Strep_upset_plot_up <- Strep_upset_up %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("Count") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
-        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
-        axis.text.y = element_text(size = 14)) + 
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
+        axis.title.y = element_text(size = 28, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) +
   scale_y_continuous(breaks = seq(0, 250, by = 50), limits = c(0,250))
 Strep_upset_plot_up
 
@@ -1664,19 +1731,27 @@ Prev_upset_plot_up <- Prev_upset_up %>%
   geom_bar(aes(x=Condition)) +
   scale_x_upset(order_by = "degree") + 
   ylab("Count") +
-  theme(axis.title.x = element_text(size = 20, face = "bold"),
-        axis.title.y = element_text(size = 20, vjust = -14, face = "bold"),
-        axis.text.y = element_text(size = 14)) + 
+  theme(axis.title.x = element_text(size = 28, face = "bold"),
+        axis.title.y = element_text(size = 28, vjust = -14, face = "bold"),
+        axis.text.y = element_text(size = 14)) +
+  theme_combmatrix(combmatrix.label.text = element_text(size =16, face = "bold", colour = "black")) + 
   scale_y_continuous(breaks = seq(0, 125, by = 25), limits = c(0,125))
 Prev_upset_plot_up
 
 ```
 
 ```{r upset_combined, echo = FALSE}
-plot_grid(Pseudo_upset_plot_up, Pseudo_upset_plot_down, nrow = 1, ncol = 2)
-plot_grid(Staph_upset_plot_up, Staph_upset_plot_down, nrow = 1, ncol = 2)
-plot_grid(Strep_upset_plot_up, Strep_upset_plot_down, nrow = 1, ncol = 2)
-plot_grid(Prev_upset_plot_up, Prev_upset_plot_down, nrow = 1, ncol = 2)
+Pseudo_upset <- plot_grid(Pseudo_upset_plot_up, Pseudo_upset_plot_down, nrow = 1, ncol = 2)
+ggsave(Pseudo_upset, file="Pseudo_upset.png", width=48.18, height=20.54, units="cm", dpi=600)
+
+Staph_upset <- plot_grid(Staph_upset_plot_up, Staph_upset_plot_down, nrow = 1, ncol = 2)
+ggsave(Staph_upset, file="Staph_upset.png", width=48.18, height=20.54, units="cm", dpi=600)
+
+Strep_upset <- plot_grid(Strep_upset_plot_up, Strep_upset_plot_down, nrow = 1, ncol = 2)
+ggsave(Strep_upset, file="Strep_upset.png", width=48.18, height=20.54, units="cm", dpi=600)
+
+Prev_upset <- plot_grid(Prev_upset_plot_up, Prev_upset_plot_down, nrow = 1, ncol = 2)
+ggsave(Prev_upset, file="Prev_upset.png", width=48.18, height=20.54, units="cm", dpi=600)
 ```
 
 ```{r test_eukledian_distance_PCAs, echo = FALSE}
@@ -1771,9 +1846,9 @@ PA14_dist_matrix_heatmap <- PA14_vs_mix_dist %>%
   theme_minimal() + 
   theme(panel.grid.major.x = element_blank(), 
         panel.grid.major.y = element_blank(),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+        axis.text.x = element_text(size = 16, face = "bold", colour = "black"),
+        axis.text.y = element_text(size = 16, face = "bold", colour = "black"),
+        plot.title = element_text(hjust = .75, face = "bold.italic", size = 20))
   
 plot(PA14_dist_matrix_heatmap)
 
@@ -1789,9 +1864,9 @@ Staph_dist_matrix_heatmap <- Staph_vs_mix_dist %>%
   theme_minimal() + 
   theme(panel.grid.major.x = element_blank(), 
         panel.grid.major.y = element_blank(),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+        axis.text.x = element_text(size = 16, face = "bold", colour = "black"),
+        axis.text.y = element_text(size = 16, face = "bold", colour = "black"),
+        plot.title = element_text(hjust = .75, face = "bold.italic", size = 20))
   
 plot(Staph_dist_matrix_heatmap)
 
@@ -1807,9 +1882,9 @@ Strep_dist_matrix_heatmap <- Strep_vs_mix_dist %>%
   theme_minimal() + 
   theme(panel.grid.major.x = element_blank(), 
         panel.grid.major.y = element_blank(),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        plot.title = element_text(hjust = .75, face = "italic", size = 18))
+        axis.text.x = element_text(size = 16, face = "bold", colour = "black"),
+        axis.text.y = element_text(size = 16, face = "bold", colour = "black"),
+        plot.title = element_text(hjust = .75, face = "bold.italic", size = 20))
   
 plot(Strep_dist_matrix_heatmap)
 
@@ -1825,9 +1900,9 @@ Prev_dist_matrix_heatmap <- Prev_vs_mix_dist %>%
   theme_minimal() + 
   theme(panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_blank(),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        plot.title = element_text(hjust = 1.5, face = "italic", size = 18))
+        axis.text.x = element_text(size = 16, face = "bold", colour = "black"),
+        axis.text.y = element_text(size = 16, face = "bold", colour = "black"),
+        plot.title = element_text(hjust = .75, face = "bold.italic", size = 20))
   
 plot(Prev_dist_matrix_heatmap)
 
@@ -2059,4 +2134,50 @@ Prev_tob_anova <- aov(CFU ~ condition, data = Prev_tob_stats)
 summary(Prev_tob_anova)
 Prev_Bon <- pairwise.t.test(Prev_tob_stats$CFU, Prev_tob_stats$Stat_order, p.adjust.method = "bonferroni")
 Prev_Bon
+```
+
+```{r Screen_data, echo = FALSE}
+Screen_data <- read.xlsx("genetic screen.xlsx")
+Rendi_data <- Screen_data[Screen_data$Bacteria %in% c("PA14", "Streptococcus"), ]
+Bassam_data <- Screen_data[Screen_data$Bacteria == "Prevotella", ]
+
+wilcox.test(Rendi_data[1:4,1], Rendi_data[5:39,1], alternative = "two.sided")
+
+Rendi_Screen_plot <- Rendi_data %>%
+  ggplot(aes(x=Bacteria, y = CFU.reduction)) +
+  geom_jitter(height = 0, width = 0.3) +
+  stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
+  theme(axis.title.y = element_text(size = 18),
+        axis.text = element_text(size = 14),
+        axis.text.x = element_text(face = "bold.italic")) + 
+  xlab("") +
+  ylab(bquote(paste("log"["10"]*"(CFU/ml) reduction"))) +
+  scale_x_discrete(labels = c("Pseudomonas", "Streptococcus")) +
+  geom_signif(comparisons = list(c("PA14", "Streptococcus")), map_signif_level = TRUE, y_position = c(4.25)) +
+  scale_y_continuous(limits = c(0,7))
+
+Rendi_Screen_plot
+
+Bassam_Screen_plot <- Bassam_data %>%
+  ggplot(aes(x=Bacteria, y = CFU.reduction)) +
+  geom_jitter(height = 0, width = 0.3) +
+  stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
+  theme(axis.title.x = element_text(size = 16),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 14),
+        axis.text.y = element_blank(),
+        axis.ticks =element_blank(), 
+        axis.text.x = element_text(face = "bold.italic"),
+        plot.margin = unit(c(5.5, 5.5, 5.5, 27.5), "pt")) +
+  xlab("") + 
+  ylab("") +
+  scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,7)) 
+
+Bassam_Screen_plot
+
+combined <- plot_grid(Rendi_Screen_plot, Bassam_Screen_plot, labels = "AUTO", label_size = 24)
+x.grob <- textGrob("Bacterial Screen", 
+                   gp=gpar(fontsize = 18))
+
+grid.arrange(arrangeGrob(combined, bottom = x.grob))
 ```
