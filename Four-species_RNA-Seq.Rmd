@@ -2107,10 +2107,11 @@ Rendi_Screen_plot <- Rendi_data %>%
   xlab("") +
   ylab(bquote(paste("log"["10"]*"(CFU/ml) reduction"))) +
   scale_x_discrete(labels = c("Pseudomonas", "Streptococcus")) +
-  geom_signif(comparisons = list(c("PA14", "Streptococcus")), 
-              map_signif_level = TRUE, 
+  geom_signif(comparisons = list(c("PA14", "Streptococcus")),
+              map_signif_level = T,
               y_position = 4.25, 
-              test = "t.test") +
+              test = "t.test",
+              annotations = "****") +
   scale_y_continuous(limits = c(0,7))
 
 Rendi_Screen_plot
