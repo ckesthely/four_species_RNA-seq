@@ -2101,13 +2101,16 @@ Rendi_Screen_plot <- Rendi_data %>%
   ggplot(aes(x=Bacteria, y = CFU.reduction)) +
   geom_jitter(height = 0, width = 0.3) +
   stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
-  theme(axis.title.y = element_text(size = 18),
-        axis.text = element_text(size = 14),
+  theme(axis.title.y = element_text(size = 20),
+        axis.text = element_text(size = 18),
         axis.text.x = element_text(face = "bold.italic")) + 
   xlab("") +
   ylab(bquote(paste("log"["10"]*"(CFU/ml) reduction"))) +
   scale_x_discrete(labels = c("Pseudomonas", "Streptococcus")) +
-  geom_signif(comparisons = list(c("PA14", "Streptococcus")), map_signif_level = TRUE, y_position = c(4.25)) +
+  geom_signif(comparisons = list(c("PA14", "Streptococcus")), 
+              map_signif_level = TRUE, 
+              y_position = 4.25, 
+              test = "t.test") +
   scale_y_continuous(limits = c(0,7))
 
 Rendi_Screen_plot
@@ -2116,22 +2119,29 @@ Bassam_Screen_plot <- Bassam_data %>%
   ggplot(aes(x=Bacteria, y = CFU.reduction)) +
   geom_jitter(height = 0, width = 0.3) +
   stat_summary(fun = mean, show.legend = FALSE, geom = "crossbar", colour = "black", width = 0.7) +
-  theme(axis.title.x = element_text(size = 16),
-        axis.title.y = element_blank(),
-        axis.text = element_text(size = 14),
+  theme(axis.title.y = element_blank(),
+        axis.text = element_text(size = 18),
         axis.text.y = element_blank(),
         axis.ticks =element_blank(), 
         axis.text.x = element_text(face = "bold.italic"),
-        plot.margin = unit(c(5.5, 5.5, 5.5, 27.5), "pt")) +
+        plot.margin = unit(c(5.5, 5.5, 5.5, 27.5), "pt"))+
   xlab("") + 
   ylab("") +
   scale_y_continuous(breaks = seq(0, 8, by = 2), limits = c(0,7)) 
 
 Bassam_Screen_plot
 
-combined <- plot_grid(Rendi_Screen_plot, Bassam_Screen_plot, labels = "AUTO", label_size = 24)
+combined <- plot_grid(Rendi_Screen_plot, Bassam_Screen_plot, labels = "AUTO", label_size = 28)
 x.grob <- textGrob("Bacterial Screen", 
-                   gp=gpar(fontsize = 18))
+                   gp=gpar(fontsize = 30))
 
 grid.arrange(arrangeGrob(combined, bottom = x.grob))
+
+png(file = "Figure_5.png", height = 26.18, width = 26.49, units = "cm", res = 600)
+combined <- plot_grid(Rendi_Screen_plot, Bassam_Screen_plot, labels = "AUTO", label_size = 28)
+x.grob <- textGrob("Bacterial Screen", 
+                   gp=gpar(fontsize = 30))
+
+grid.arrange(arrangeGrob(combined, bottom = x.grob))
+dev.off()
 ```
