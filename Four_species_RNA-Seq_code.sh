@@ -291,3 +291,46 @@ featureCounts \
 	../alignment/Prev/${sample}.sorted.sam \
 	-p -O -t CDS -g gene_id -f -d 10 --verbose
 done
+
+# set up an array to fill with shorthand sample names
+myarray=()
+
+# loop over htseq.counts files and extract 2nd column (the raw read counts) using 'cut' command
+while read x;  do
+  # split up sample names to remove everything after "-"
+  sname=`echo "$x"`
+  sname=`echo "$sname" | cut -d"." -f1`
+  # extract second column of file to get read counts only
+  echo counts for "$sname" being extracted
+  cut -f3 $x > "$sname".tmp.counts
+  # save shorthand sample names into an array  
+  sname2="$sname"
+  myarray+=($sname2)
+done < <(ls -1 *.htseq-counts | sort)
+
+# paste gene IDs into a file with each to make the gene expression matrix
+paste genes.txt *.tmp.counts > tmp_all_counts.txt
+
+# look at the contents of the array we made with shorthand sample names
+echo ${myarray[@]}
+
+# print contents of array into text file with each element on a new line
+printf "%s\n" "${myarray[@]}" > col_names.txt
+cat col_names.txt
+
+# add 'gene_name' to colnames
+cat <(echo "ENSEMBL_ID") <(echo "gene_name") col_names.txt > col_names_full.txt
+cat col_names_full.txt
+
+# make a file to fill
+touch all_counts.txt
+
+# use the 'cat' command (concatenate) to put all tmp.counts.txt files into all_counts.txt
+cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > all_counts.txt
+
+# remove last five lines containing the extra quant info
+head -n-5 all_counts.txt > all_counts_f.txt
+wc -l all_counts_f.txt
+
+#remove temp files
+rm -f *tmp*
