@@ -225,70 +225,20 @@ done
 
 #PA14
 cd ../../
-mkdir -p featureCounts/
-cd featureCounts/
+mkdir -p featureCounts/{PA14,Staph,Strep,Prev}
+cd featureCounts/PA14
 
-ls ../alignment/PA14/*.sorted.sam | while read x; do
+ls ../../alignment/PA14/*.sorted.sam | while read x; do
 	# save the file name
 	sample=`echo "$x"`
 	# get everything in file name before "/" (to remove './')
-	sample=`echo "$sample" | cut -d"/" -f4 | cut -d"." -f1`
+	sample=`echo "$sample" | cut -d"/" -f5 | cut -d"." -f1`
 	echo processing "$sample"
 	
 featureCounts \
-	-a ../gtf_files/PA14.gtf \
+	-a ../../gtf_files/PA14.gtf \
 	-o ./${sample}_featureCounts_output.txt \
-	../alignment/PA14/${sample}.sorted.sam \
-	-p -O -t CDS -g gene_id -f -d 10 --verbose
-done
-
-
- 
-#Staph
-
-ls ../alignment/Staph/*.sorted.sam | while read x; do
-	# save the file name
-	sample=`echo "$x"`
-	# get everything in file name before "/" (to remove './')
-	sample=`echo "$sample" | cut -d"/" -f4 | cut -d"." -f1`
-	echo processing "$sample"
-
-featureCounts \
-	-a ../gtf_files/Staph.gtf \
-	-o ./${sample}_featureCounts_output.txt \
-	../alignment/Staph/${sample}.sorted.sam \
-	-p -O -t CDS -g gene_id -f -d 10 --verbose
-done
-
-#Strep
-
-ls ../alignment/Strep/*.sorted.sam | while read x; do
-	# save the file name
-	sample=`echo "$x"`
-	# get everything in file name before "/" (to remove './')
-	sample=`echo "$sample" | cut -d"/" -f4 | cut -d"." -f1`
-	echo processing "$sample"
-
-featureCounts \
-	-a ../gtf_files/Strep.gtf \
-	-o ./${sample}_featureCounts_output.txt \
-	../alignment/Strep/${sample}.sorted.sam \
-	-p -O -t CDS -g gene_id -f -d 10 --verbose
-done
-
-#Prev
-
-ls ../alignment/Prev/*.sorted.sam | while read x; do
-	# save the file name
-	sample=`echo "$x"`
-	# get everything in file name before "/" (to remove './')
-	sample=`echo "$sample" | cut -d"/" -f4 | cut -d"." -f1`
-	echo processing "$sample"
-
-featureCounts \
-	-a ../gtf_files/Prev.gtf \
-	-o ./${sample}_featureCounts_output.txt \
-	../alignment/Prev/${sample}.sorted.sam \
+	../../alignment/PA14/${sample}.sorted.sam \
 	-p -O -t CDS -g gene_id -f -d 10 --verbose
 done
 
@@ -299,14 +249,17 @@ myarray=()
 while read x;  do
   # split up sample names to remove everything after "-"
   sname=`echo "$x"`
-  sname=`echo "$sname" | cut -d"." -f1`
+  sname=`echo "$sname" | rev | cut -d"_" -f3- | rev`
   # extract second column of file to get read counts only
   echo counts for "$sname" being extracted
-  cut -f3 $x > "$sname".tmp.counts
+  cut -f7 $x > "$sname".tmp.counts
   # save shorthand sample names into an array  
   sname2="$sname"
   myarray+=($sname2)
-done < <(ls -1 *.htseq-counts | sort)
+done < <(ls -1 *output.txt | sort)
+
+#extract gene IDs and gene names
+cut -f1 Mix_1_PA14_featureCounts_output.txt > genes.txt
 
 # paste gene IDs into a file with each to make the gene expression matrix
 paste genes.txt *.tmp.counts > tmp_all_counts.txt
@@ -326,11 +279,194 @@ cat col_names_full.txt
 touch all_counts.txt
 
 # use the 'cat' command (concatenate) to put all tmp.counts.txt files into all_counts.txt
-cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > all_counts.txt
+cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > PA14_all_counts.txt
 
-# remove last five lines containing the extra quant info
-head -n-5 all_counts.txt > all_counts_f.txt
-wc -l all_counts_f.txt
+
+#remove temp files
+rm -f *tmp*
+
+ 
+#Staph
+
+cd ../Staph
+
+ls ../../alignment/Staph/*.sorted.sam | while read x; do
+	# save the file name
+	sample=`echo "$x"`
+	# get everything in file name before "/" (to remove './')
+	sample=`echo "$sample" | cut -d"/" -f5 | cut -d"." -f1`
+	echo processing "$sample"
+
+featureCounts \
+	-a ../../gtf_files/Staph.gff \
+	-o ./${sample}_featureCounts_output.txt \
+	../../alignment/Staph/${sample}.sorted.sam \
+	-p -O -t CDS -g gene_id -f -d 10 --verbose
+done
+
+# set up an array to fill with shorthand sample names
+myarray=()
+
+# loop over htseq.counts files and extract 2nd column (the raw read counts) using 'cut' command
+while read x;  do
+  # split up sample names to remove everything after "-"
+  sname=`echo "$x"`
+  sname=`echo "$sname" | rev | cut -d"_" -f3- | rev`
+  # extract second column of file to get read counts only
+  echo counts for "$sname" being extracted
+  cut -f7 $x > "$sname".tmp.counts
+  # save shorthand sample names into an array  
+  sname2="$sname"
+  myarray+=($sname2)
+done < <(ls -1 *output.txt | sort)
+
+#extract gene IDs and gene names
+cut -f1 Mix_1_Staph_featureCounts_output.txt > genes.txt
+
+# paste gene IDs into a file with each to make the gene expression matrix
+paste genes.txt *.tmp.counts > tmp_all_counts.txt
+
+# look at the contents of the array we made with shorthand sample names
+echo ${myarray[@]}
+
+# print contents of array into text file with each element on a new line
+printf "%s\n" "${myarray[@]}" > col_names.txt
+cat col_names.txt
+
+# add 'gene_name' to colnames
+cat <(echo "ENSEMBL_ID") <(echo "gene_name") col_names.txt > col_names_full.txt
+cat col_names_full.txt
+
+# make a file to fill
+touch all_counts.txt
+
+# use the 'cat' command (concatenate) to put all tmp.counts.txt files into all_counts.txt
+cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > Staph_all_counts.txt
+
+
+#remove temp files
+rm -f *tmp*
+
+
+#Strep
+
+cd ../Strep
+
+ls ../../alignment/Strep/*.sorted.sam | while read x; do
+	# save the file name
+	sample=`echo "$x"`
+	# get everything in file name before "/" (to remove './')
+	sample=`echo "$sample" | cut -d"/" -f5 | cut -d"." -f1`
+	echo processing "$sample"
+
+featureCounts \
+	-a ../../gtf_files/Strep.gtf \
+	-o ./${sample}_featureCounts_output.txt \
+	../../alignment/Strep/${sample}.sorted.sam \
+	-p -O -t CDS -g gene_id -f -d 10 --verbose
+done
+
+# set up an array to fill with shorthand sample names
+myarray=()
+
+# loop over htseq.counts files and extract 2nd column (the raw read counts) using 'cut' command
+while read x;  do
+  # split up sample names to remove everything after "-"
+  sname=`echo "$x"`
+  sname=`echo "$sname" | rev | cut -d"_" -f3- | rev`
+  # extract second column of file to get read counts only
+  echo counts for "$sname" being extracted
+  cut -f7 $x > "$sname".tmp.counts
+  # save shorthand sample names into an array  
+  sname2="$sname"
+  myarray+=($sname2)
+done < <(ls -1 *output.txt | sort)
+
+#extract gene IDs and gene names
+cut -f1 Mix_1_Strep_featureCounts_output.txt > genes.txt
+
+# paste gene IDs into a file with each to make the gene expression matrix
+paste genes.txt *.tmp.counts > tmp_all_counts.txt
+
+# look at the contents of the array we made with shorthand sample names
+echo ${myarray[@]}
+
+# print contents of array into text file with each element on a new line
+printf "%s\n" "${myarray[@]}" > col_names.txt
+cat col_names.txt
+
+# add 'gene_name' to colnames
+cat <(echo "ENSEMBL_ID") <(echo "gene_name") col_names.txt > col_names_full.txt
+cat col_names_full.txt
+
+# make a file to fill
+touch all_counts.txt
+
+# use the 'cat' command (concatenate) to put all tmp.counts.txt files into all_counts.txt
+cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > Strep_all_counts.txt
+
+
+#remove temp files
+rm -f *tmp*
+
+
+#Prev
+
+cd ../Prev
+
+ls ../../alignment/Prev/*.sorted.sam | while read x; do
+	# save the file name
+	sample=`echo "$x"`
+	# get everything in file name before "/" (to remove './')
+	sample=`echo "$sample" | cut -d"/" -f5 | cut -d"." -f1`
+	echo processing "$sample"
+
+featureCounts \
+	-a ../gtf_files/Prev.gtf \
+	-o ./${sample}_featureCounts_output.txt \
+	../../alignment/Prev/${sample}.sorted.sam \
+	-p -O -t CDS -g gene_id -f -d 10 --verbose
+done
+
+# set up an array to fill with shorthand sample names
+myarray=()
+
+# loop over htseq.counts files and extract 2nd column (the raw read counts) using 'cut' command
+while read x;  do
+  # split up sample names to remove everything after "-"
+  sname=`echo "$x"`
+  sname=`echo "$sname" | rev | cut -d"_" -f3- | rev`
+  # extract second column of file to get read counts only
+  echo counts for "$sname" being extracted
+  cut -f7 $x > "$sname".tmp.counts
+  # save shorthand sample names into an array  
+  sname2="$sname"
+  myarray+=($sname2)
+done < <(ls -1 *output.txt | sort)
+
+#extract gene IDs and gene names
+cut -f1 Mix_1_Prev_featureCounts_output.txt > genes.txt
+
+# paste gene IDs into a file with each to make the gene expression matrix
+paste genes.txt *.tmp.counts > tmp_all_counts.txt
+
+# look at the contents of the array we made with shorthand sample names
+echo ${myarray[@]}
+
+# print contents of array into text file with each element on a new line
+printf "%s\n" "${myarray[@]}" > col_names.txt
+cat col_names.txt
+
+# add 'gene_name' to colnames
+cat <(echo "ENSEMBL_ID") <(echo "gene_name") col_names.txt > col_names_full.txt
+cat col_names_full.txt
+
+# make a file to fill
+touch all_counts.txt
+
+# use the 'cat' command (concatenate) to put all tmp.counts.txt files into all_counts.txt
+cat <(cat col_names_full.txt | sort | paste -s) tmp_all_counts.txt > Prev_all_counts.txt
+
 
 #remove temp files
 rm -f *tmp*
