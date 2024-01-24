@@ -422,7 +422,7 @@ ls ../../alignment/Prev/*.sorted.sam | while read x; do
 	echo processing "$sample"
 
 featureCounts \
-	-a ../gtf_files/Prev.gtf \
+	-a ../../gtf_files/Prev.gtf \
 	-o ./${sample}_featureCounts_output.txt \
 	../../alignment/Prev/${sample}.sorted.sam \
 	-p -O -t CDS -g gene_id -f -d 10 --verbose
